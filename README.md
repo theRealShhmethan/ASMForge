@@ -38,6 +38,11 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version and
 - Resizable panels, memory viewer with Data / Heap / Stack ($sp) / $gp / $fp / Custom views (register views follow
   the register) and Hex / Signed / Unsigned / Binary / ASCII formats. The Go box accepts addresses, labels and `$registers`.
 
+### Pseudocode generator
+- **Tools > Pseudocode Generator** or `.pseudo` files: write C-like pseudocode (variables, arrays, if/else, loops,
+  print/read) and get commented MIPS assembly that runs in ASMForge. F3 generates, F5 generates and runs.
+  See [docs/PSEUDOCODE.md](docs/PSEUDOCODE.md).
+
 ### C# integration
 - Press **Run** on a `.cs` file to compile it with Roslyn and run it inside ASMForge; console output goes to Run I/O.
 - By default only the active C# file is compiled. Enable **Settings > Run All Project C# Files Together** to

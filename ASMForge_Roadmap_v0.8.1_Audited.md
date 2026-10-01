@@ -2056,19 +2056,21 @@ commented MIPS assembly that assembles and runs in ASMForge. Listed under **Tool
 
 ## Design (to decide when this phase starts)
 
-- [ ] Define the pseudocode language (variables, integer arithmetic, assignment, if/else, while, for,
-      print / read, arrays, functions with parameters and return values)
-- [ ] Write a short language reference with examples
-- [ ] Decide register/stack allocation strategy (e.g. variables in `.data`, temporaries in `$t` registers)
+- [T] Define the pseudocode language (int variables and arrays, arithmetic, assignment, if/else, while, do-while,
+      for, break/continue, print / read) *(functions are a later step)*
+- [T] Write a short language reference with examples *(docs/PSEUDOCODE.md, plus a cheat sheet in the window)*
+- [T] Decide register/stack allocation strategy *(variables in `.data`, temporaries in `$t0-$t9`)*
 
 ## Implementation
 
-- [ ] Tokenizer and parser with clear error messages (line/column)
-- [ ] Code generator producing commented MIPS (`# x = y + 1`) that maps back to pseudocode lines
-- [ ] Tools > Pseudocode Generator window: pseudocode editor, live preview of generated assembly
-- [ ] Open the result as a new `.asm` tab / insert into the current file
-- [ ] Generated code assembles cleanly and passes round-trip tests (generate, assemble, run, check output)
-- [ ] Example pseudocode programs
+- [T] Tokenizer and parser with clear error messages (line/column)
+- [T] Code generator producing commented MIPS (`# x = y + 1`) that maps back to pseudocode lines
+- [T] Tools > Pseudocode Generator window: pseudocode editor, live preview of generated assembly
+- [T] Open the result as a new `.asm` tab / insert into the current file
+- [T] `.pseudo` files: syntax colors, live squiggles, F3 generates name.asm, F5 generates and runs
+- [T] Generated code assembles cleanly and passes round-trip tests (generate, assemble, run, check output)
+- [~] Example pseudocode programs *(examples/FizzBuzz.pseudo)*
+- [ ] Functions with parameters and return values (jal/jr, stack frames)
 
 ---
 

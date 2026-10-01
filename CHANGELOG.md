@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+- **Pseudocode generator** (Tools > Pseudocode Generator, and `.pseudo` files): write C-like pseudocode and get
+  commented MIPS assembly. Supports int variables and arrays, if/else, while, do-while, for, break/continue,
+  print/printChar/readInt/readChar/exit and C operators with short-circuit `&&`/`||`. Each statement appears as a
+  comment above its instructions; variables are `.data` labels. Errors show line and column with live squiggles.
+  Code pasted from an assembly comment block (`# ...` on every line) is accepted as-is. F3 on a `.pseudo` file
+  generates `name.asm` beside it; F5 generates and runs. See docs/PSEUDOCODE.md and examples/FizzBuzz.pseudo.
+- Generated code follows a hand-written course style: data first, `.globl main`, the pseudocode as one `#` comment
+  block, variables in `$s0`-`$s7`, strings named after their text (`fizzBuzz`, `newline`), readable labels
+  (`loop`/`endLoop`, `endIf`), and short aligned trailing comments (`# if i > 100 → endLoop`, `# Print i`).
+
 ## v0.12.0
 - **Live error checking**: about half a second after you stop typing in an assembly file, every line with an
   error gets a red squiggle (unknown instructions, wrong operands, out-of-range values, undefined labels,

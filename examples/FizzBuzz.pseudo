@@ -1,0 +1,12 @@
+// FizzBuzz in ASMForge pseudocode. Press F3 to generate FizzBuzz.asm, or F5 to generate and run it.
+int i = 1;
+
+while (i <= 100) {
+    if (i % 3 == 0 && i % 5 == 0) {print("FizzBuzz\n"); i++; continue;}
+    if (i % 3 == 0) {print("Fizz\n"); i++; continue;}
+    if (i % 5 == 0) {print("Buzz\n"); i++; continue;}
+
+    print(i);
+    print("\n");
+    i++;
+}

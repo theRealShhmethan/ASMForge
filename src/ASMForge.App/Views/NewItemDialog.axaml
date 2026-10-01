@@ -5,7 +5,7 @@
     <TextBlock Grid.ColumnSpan="2" FontSize="20" FontWeight="Bold" Text="Create New" Margin="0,0,0,18"/>
     <TextBlock Grid.Row="1" Text="Type" VerticalAlignment="Center" Margin="0,0,14,10"/>
     <ComboBox Grid.Row="1" Grid.Column="1" Name="KindBox" SelectedIndex="0" Margin="0,0,0,10" SelectionChanged="KindBox_SelectionChanged">
-      <ComboBoxItem Content="ASM File"/><ComboBoxItem Content="C# File"/><ComboBoxItem Content="Project"/>
+      <ComboBoxItem Content="ASM File"/><ComboBoxItem Content="C# File"/><ComboBoxItem Content="Project"/><ComboBoxItem Content="Pseudocode File"/>
     </ComboBox>
     <TextBlock Grid.Row="2" Text="Name" VerticalAlignment="Center" Margin="0,0,14,10"/>
     <TextBox Grid.Row="2" Grid.Column="1" Name="NameBox" Text="main.asm" Margin="0,0,0,10"/>

@@ -14,6 +14,7 @@ using ASMForge.Core.Assembly;
 using ASMForge.Core.Cpu;
 using ASMForge.Core.Execution;
 using ASMForge.Core.Memory;
+using ASMForge.Core.Pseudocode;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -240,9 +241,9 @@ main:
             }
             else
             {
-                var ext = r.Kind == 1 ? ".cs" : ".asm"; var name = r.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ? r.Name : r.Name + ext;
+                var ext = r.Kind switch { 1 => ".cs", 3 => ".pseudo", _ => ".asm" }; var name = r.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ? r.Name : r.Name + ext;
                 Directory.CreateDirectory(r.Location); var path = Path.Combine(r.Location, name);
-                if (!File.Exists(path)) File.WriteAllText(path, r.Kind == 1 ? CsTemplateFor(Path.GetFileNameWithoutExtension(name)) : "# ASMForge assembly file\n.text\nmain:\n");
+                if (!File.Exists(path)) File.WriteAllText(path, r.Kind == 3 ? PseudocodeWindow.Example + "\n" : r.Kind == 1 ? CsTemplateFor(Path.GetFileNameWithoutExtension(name)) : "# ASMForge assembly file\n.text\nmain:\n");
                 OpenFilePath(path);
                 RefreshExplorer();
                 Status.Text = $"Created {name}";
@@ -256,9 +257,10 @@ main:
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Open source file", AllowMultiple = true, FileTypeFilter = new[]
         {
             // The first filter is the dialog's default, so show every ASMForge source type first.
-            new FilePickerFileType("ASMForge source files (*.asm, *.s, *.cs)") { Patterns = new[] { "*.asm", "*.s", "*.cs" } },
+            new FilePickerFileType("ASMForge source files (*.asm, *.s, *.cs, *.pseudo)") { Patterns = new[] { "*.asm", "*.s", "*.cs", "*.pseudo" } },
             new FilePickerFileType("Assembly files (*.asm, *.s)") { Patterns = new[] { "*.asm", "*.s" } },
             new FilePickerFileType("C# files (*.cs)") { Patterns = new[] { "*.cs" } },
+            new FilePickerFileType("Pseudocode files (*.pseudo)") { Patterns = new[] { "*.pseudo" } },
             FilePickerFileTypes.All
         } });
         foreach (var f in files) Try(() => OpenFilePath(f.Path.LocalPath));
@@ -470,7 +472,7 @@ main:
 
     private void Editor_TextEntered(TextEditor editor, string name, TextInputEventArgs e)
     {
-        if (name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(e.Text))
+        if (name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".pseudo", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(e.Text))
             return;
 
         var ch = e.Text[0];
@@ -616,7 +618,8 @@ main:
             foreach (var file in EnumerateProjectFiles(_projectFolder, "*")
                          .Where(p => p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase) ||
                                      p.EndsWith(".s", StringComparison.OrdinalIgnoreCase) ||
-                                     p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                                     p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                                     p.EndsWith(".pseudo", StringComparison.OrdinalIgnoreCase))
                          .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
                 items.Add(Path.GetRelativePath(_projectFolder, file));
@@ -743,6 +746,7 @@ main:
     private void Assemble_Click(object? s, RoutedEventArgs e)
     {
         if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo) { GenerateFromPseudocode(ActiveDocument!); return; }
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Status.Text = "C# files are compiled when you press Run";
@@ -758,6 +762,7 @@ main:
     private void Step_Click(object? s, RoutedEventArgs e)
     {
         if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo) { ShowPseudocodeHint(); return; }
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Messages.Text = "Instruction stepping applies to MIPS assembly. Run the C# host, then use ASMForgeRuntime.Step() inside C# when host-controlled stepping is needed.";
@@ -917,6 +922,12 @@ main:
     private async void Run_Click(object? s, RoutedEventArgs e)
     {
         if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo)
+        {
+            // Generate, switch to the .asm tab, and run it there.
+            if (GenerateFromPseudocode(ActiveDocument!) is not null) await RunMipsAsync(null);
+            return;
+        }
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             await RunCSharpAsync();
@@ -928,6 +939,7 @@ main:
     private async void RunToCursor_Click(object? s, RoutedEventArgs e)
     {
         if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo) { ShowPseudocodeHint(); return; }
         var editor = ActiveEditor;
         if (editor is null || ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
@@ -954,7 +966,7 @@ main:
             _runCts.Cancel();
             return;
         }
-        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true) return;
+        if (ActiveDocument is { } current && !IsAssemblyDocument(current)) return;
         Try(Assemble);
         Status.Text = "Stopped";
     }
@@ -1107,6 +1119,7 @@ main:
     private void Reset_Click(object? s, RoutedEventArgs e)
     {
         if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo) { ShowPseudocodeHint(); return; }
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Console.Text = string.Empty;
@@ -1119,6 +1132,7 @@ main:
     private void Back_Click(object? s, RoutedEventArgs e)
     {
         if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo) { ShowPseudocodeHint(); return; }
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Messages.Text = "Step Back applies to MIPS assembly. In C# host code, use ASMForgeRuntime.StepBack().";
@@ -1328,7 +1342,10 @@ main:
 
     // ---- Diagnostics: live squiggles, hover/caret messages, Messages navigation ----
 
-    private static bool IsAssemblyDocument(EditorDocument doc) => !doc.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+    private static bool IsCSharpDocument(EditorDocument doc) => doc.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+    private static bool IsPseudoDocument(EditorDocument doc) => doc.Name.EndsWith(".pseudo", StringComparison.OrdinalIgnoreCase);
+    private static bool IsAssemblyDocument(EditorDocument doc) => !IsCSharpDocument(doc) && !IsPseudoDocument(doc);
+    private bool ActiveIsPseudo => ActiveDocument is { } doc && IsPseudoDocument(doc);
 
     private void ScheduleLiveCheck(EditorDocument doc)
     {
@@ -1344,6 +1361,13 @@ main:
         try
         {
             var source = doc.Editor.Text ?? string.Empty;
+            if (IsPseudoDocument(doc))
+            {
+                doc.Diagnostics.Set(PseudocodeCompiler.Compile(source).Errors
+                    .Select(err => new EditorDiagnostic(err.Line, err.Column, err.Message, EditorDiagnosticSeverity.Error)));
+                if (doc == ActiveDocument) ShowDiagnosticAtCaret(doc);
+                return;
+            }
             if (!IsAssemblyDocument(doc))
             {
                 doc.Diagnostics.Set(EmbeddedAssemblyChecker.Check(source, _checker, GetAssemblyWarnings));
@@ -1384,7 +1408,7 @@ main:
         var byFile = DiagnosticRenderer.FromCSharpDiagnostics(diagnosticsText)
             .GroupBy(d => d.File, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Select(d => d.Diagnostic).ToList(), StringComparer.OrdinalIgnoreCase);
-        foreach (var doc in _documents.Where(d => !IsAssemblyDocument(d)))
+        foreach (var doc in _documents.Where(IsCSharpDocument))
         {
             // Compiler errors from this run, plus the live check of assembly embedded in the file's strings.
             var list = byFile.TryGetValue(doc.Name, out var compiler) ? compiler : new List<EditorDiagnostic>();
@@ -1467,6 +1491,105 @@ main:
         editor.ScrollToLine(line);
         editor.Focus();
         return true;
+    }
+
+    // ---- Pseudocode generator ----
+
+    private const string GeneratedHeader = "# Generated by the ASMForge Pseudocode Generator";
+
+    private void ShowPseudocodeHint()
+    {
+        Status.Text = "Pseudocode: press F3 to generate the .asm, or F5 to generate and run. Step, Back and breakpoints work in the generated .asm tab.";
+    }
+
+    private void PseudocodeGenerator_Click(object? s, RoutedEventArgs e)
+    {
+        var initial = ActiveDocument is { } doc && IsPseudoDocument(doc) ? doc.Editor.Text ?? string.Empty : PseudocodeWindow.Example;
+        new PseudocodeWindow(initial, OpenGeneratedAssembly, InsertIntoActiveEditor).Show(this);
+    }
+
+    private void GenerateFromPseudocode_Click(object? s, RoutedEventArgs e)
+    {
+        if (BlockWhileRunning()) return;
+        if (ActiveIsPseudo) GenerateFromPseudocode(ActiveDocument!);
+        else Status.Text = "Open a .pseudo file first, or use Tools > Pseudocode Generator.";
+    }
+
+    private void OpenGeneratedAssembly(string assembly)
+    {
+        OpenDocument(null, "Generated.asm", assembly, true);
+        WorkspaceTabs.SelectedIndex = 0;
+        Status.Text = "Generated assembly opened in a new tab (unsaved).";
+    }
+
+    private void InsertIntoActiveEditor(string assembly)
+    {
+        if (ActiveDocument is not { } doc || !IsAssemblyDocument(doc)) { OpenGeneratedAssembly(assembly); return; }
+        doc.Editor.Document.Insert(doc.Editor.CaretOffset, assembly);
+        Status.Text = $"Generated assembly inserted into {doc.Name}.";
+    }
+
+    /// <summary>
+    /// Generates name.asm next to a saved .pseudo file (or a new unsaved tab for an unsaved one) and makes it the
+    /// active tab. An existing .asm that the generator did not create is never overwritten. Returns null on errors.
+    /// </summary>
+    private EditorDocument? GenerateFromPseudocode(EditorDocument pseudo)
+    {
+        var result = PseudocodeCompiler.Compile(pseudo.Editor.Text ?? string.Empty, pseudo.Name);
+        if (!result.Success)
+        {
+            pseudo.Diagnostics.Set(result.Errors.Select(err => new EditorDiagnostic(err.Line, err.Column, err.Message, EditorDiagnosticSeverity.Error)));
+            Messages.Text = string.Join("\n", result.Errors.Select(err => $"{pseudo.Name}({err.Line},{err.Column}): error: {err.Message}"));
+            OutputTabs.SelectedIndex = 0;
+            Status.Text = $"{result.Errors.Count} error(s) in {pseudo.Name} (double-click one in Messages to jump to it)";
+            return null;
+        }
+
+        var asmName = Path.ChangeExtension(pseudo.Name, ".asm");
+        if (pseudo.Path is null)
+        {
+            OpenDocument(null, asmName, result.Assembly, true);
+            Messages.Text = $"Generated {asmName} from {pseudo.Name} (unsaved, because {pseudo.Name} has not been saved).";
+            WorkspaceTabs.SelectedIndex = 0;
+            return ActiveDocument;
+        }
+
+        var asmPath = Path.ChangeExtension(pseudo.Path, ".asm");
+        try
+        {
+            var firstLine = File.Exists(asmPath) ? File.ReadLines(asmPath).FirstOrDefault() ?? string.Empty : null;
+            if (firstLine is not null && !firstLine.StartsWith(GeneratedHeader, StringComparison.Ordinal))
+            {
+                OpenDocument(null, Path.GetFileNameWithoutExtension(pseudo.Name) + ".generated.asm", result.Assembly, true);
+                Messages.Text = $"{Path.GetFileName(asmPath)} already exists and was not created by the generator, so it was not overwritten.\nThe generated code is in a new unsaved tab.";
+                WorkspaceTabs.SelectedIndex = 0;
+                return ActiveDocument;
+            }
+            File.WriteAllText(asmPath, result.Assembly);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ShowError(ex);
+            return null;
+        }
+
+        var existing = _documents.FirstOrDefault(d => string.Equals(d.Path, asmPath, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            OpenFilePath(asmPath);
+        }
+        else
+        {
+            existing.Editor.Text = result.Assembly; // the tab shows the freshly generated file
+            existing.Dirty = false;
+            UpdateTabHeaders();
+            EditorTabs.SelectedIndex = _documents.IndexOf(existing);
+        }
+        RefreshExplorer();
+        WorkspaceTabs.SelectedIndex = 0;
+        Messages.Text = $"Generated {Path.GetFileName(asmPath)} from {pseudo.Name}.";
+        Status.Text = $"Generated {Path.GetFileName(asmPath)}. F5 runs it; F10 steps through it.";
+        return ActiveDocument;
     }
 
     // ---- Edit menu ----
@@ -1960,7 +2083,7 @@ internal sealed class CodeColorizer : DocumentColorizingTransformer
 
     private static readonly string[] TokenGroupNames =
     {
-        "comment", "string", "directive", "register", "number", "label", "keyword", "cs"
+        "comment", "string", "directive", "register", "number", "label", "keyword", "cs", "builtin"
     };
 
     private static readonly Regex TokenRegex = new(
@@ -1971,7 +2094,8 @@ internal sealed class CodeColorizer : DocumentColorizingTransformer
         "(?<number>\\b(?:0x[0-9A-Fa-f]+|\\d+)\\b)|" +
         "(?<label>\\b[A-Za-z_]\\w*(?=:))|" +
         "(?<keyword>\\b(?:add|addu|addi|addiu|sub|subu|mul|mult|multu|div|divu|rem|and|andi|or|ori|xor|xori|nor|sll|srl|sra|slt|slti|sltu|sltiu|lw|sw|lb|lbu|lh|lhu|sb|sh|li|la|move|mfhi|mflo|mthi|mtlo|beq|bne|bgt|bge|blt|ble|j|jal|jr|syscall|nop)\\b)|" +
-        "(?<cs>\\b(?:using|namespace|class|struct|public|private|internal|protected|static|void|int|uint|string|bool|const|return|new|if|else|for|foreach|while|switch|case|break|true|false|null|var)\\b)",
+        "(?<cs>\\b(?:using|namespace|class|struct|public|private|internal|protected|static|void|int|uint|string|bool|const|return|new|if|else|for|foreach|while|do|switch|case|break|continue|true|false|null|var)\\b)|" +
+        "(?<builtin>\\b(?:print|printChar|readInt|readChar|exit)\\b(?=\\s*\\())",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
     public CodeColorizer(Func<string> name, Func<ThemeVariant?> theme)
@@ -1983,7 +2107,8 @@ internal sealed class CodeColorizer : DocumentColorizingTransformer
     protected override void ColorizeLine(DocumentLine line)
     {
         var text = CurrentContext.Document.GetText(line);
-        var isCs = _name().EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+        var isPseudo = _name().EndsWith(".pseudo", StringComparison.OrdinalIgnoreCase);
+        var isCs = isPseudo || _name().EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
         var dark = _theme() == ThemeVariant.Dark;
 
         foreach (Match match in TokenRegex.Matches(text))
@@ -2008,6 +2133,9 @@ internal sealed class CodeColorizer : DocumentColorizingTransformer
             if (isCs && tokenType is "keyword" or "directive" or "register" or "label")
                 continue;
 
+            if (!isPseudo && tokenType == "builtin")
+                continue;
+
             if (!isCs && tokenType == "cs")
                 continue;
 
@@ -2018,7 +2146,7 @@ internal sealed class CodeColorizer : DocumentColorizingTransformer
                 "directive" => new SolidColorBrush(dark ? Color.FromRgb(197, 134, 192) : Color.FromRgb(128, 0, 128)),
                 "register" => new SolidColorBrush(dark ? Color.FromRgb(78, 201, 176) : Color.FromRgb(0, 128, 128)),
                 "number" => new SolidColorBrush(dark ? Color.FromRgb(181, 206, 168) : Color.FromRgb(9, 134, 88)),
-                "label" => new SolidColorBrush(dark ? Color.FromRgb(220, 220, 170) : Color.FromRgb(121, 94, 38)),
+                "label" or "builtin" => new SolidColorBrush(dark ? Color.FromRgb(220, 220, 170) : Color.FromRgb(121, 94, 38)),
                 _ => new SolidColorBrush(dark ? Color.FromRgb(86, 156, 214) : Color.FromRgb(0, 0, 255))
             };
 

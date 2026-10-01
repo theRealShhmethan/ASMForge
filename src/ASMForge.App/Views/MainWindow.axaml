@@ -95,7 +95,10 @@
                   Click="CompileAllCSharp_Click"/>
       </MenuItem>
 
-      <MenuItem Header="_Tools"/>
+      <MenuItem Header="_Tools">
+        <MenuItem Header="_Pseudocode Generator..." Click="PseudocodeGenerator_Click"/>
+        <MenuItem Header="_Generate Assembly from Pseudocode" InputGesture="F3" Click="GenerateFromPseudocode_Click"/>
+      </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="_About ASMForge" Click="About_Click"/>
       </MenuItem>
