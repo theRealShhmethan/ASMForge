@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     private readonly List<EditorDocument> _documents = new();
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.6.5 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.6.6 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """using System;\n\nnamespace ASMForgeProject;\n\ninternal static class Program\n{\n    // Assembly source is kept beside the C# code so ASMForge can route it\n    // through its simulated MIPS engine. Native host memory/registers are never touched.\n    private const string AssemblySource = \"\"\"\n.text\nmain:\n    li $t0, 5\n    li $t1, 6\n    add $t2, $t0, $t1\n    li $v0, 10\n    syscall\n\"\"\";\n\n    private static void Main()\n    {\n        // v0.6 prepares the interop template. The C# -> simulated MIPS runtime bridge\n        // will connect this source to ASMForge.Core in the next runtime layer.\n        Console.WriteLine(\"ASMForge C# + ASM project ready.\");\n    }\n}\n""";
 
     public MainWindow()
@@ -35,6 +35,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DiagnosticLog.Info("MainWindow XAML initialized");
         ShowLineNumbersMenu.IsChecked = _settings.ShowLineNumbers;
+        SyntaxHighlightingMenu.IsChecked = _settings.SyntaxHighlighting;
         OpenDocument(null, "main.asm", Sample, false);
         RefreshExplorer(); RefreshDisplay();
         Opened += MainWindow_Opened;
@@ -56,7 +57,7 @@ public partial class MainWindow : Window
             var doc = ActiveDocument;
             if (doc is null) { DiagnosticLog.Warn("No active document/editor."); return; }
             var ed = doc.Editor;
-            DiagnosticLog.Info($"ActiveDocument={doc.Name}; TextLength={ed.Text?.Length ?? 0}; EditorBounds={ed.Bounds.Width:0.##}x{ed.Bounds.Height:0.##}; IsVisible={ed.IsVisible}; IsEffectivelyVisible={ed.IsEffectivelyVisible}; Parent={ed.Parent?.GetType().FullName ?? "<null>"}; LineNumbers={ed.ShowLineNumbers}");
+            DiagnosticLog.Info($"ActiveDocument={doc.Name}; TextLength={ed.Text?.Length ?? 0}; EditorBounds={ed.Bounds.Width:0.##}x{ed.Bounds.Height:0.##}; IsVisible={ed.IsVisible}; IsEffectivelyVisible={ed.IsEffectivelyVisible}; Parent={ed.Parent?.GetType().FullName ?? "<null>"}; LineNumbers={ed.ShowLineNumbers}; SyntaxHighlighting={_settings.SyntaxHighlighting}; Transformers={ed.TextArea.TextView.LineTransformers.Count}; RequestedTheme={RequestedThemeVariant}");
         }
         catch (Exception ex) { DiagnosticLog.Error("Failed to collect editor diagnostics", ex); }
     }
@@ -124,8 +125,10 @@ public partial class MainWindow : Window
         DiagnosticLog.Info($"Opening document: {name}; path={path ?? "<untitled>"}; chars={text.Length}");
         var editor = new TextEditor { Text = text, ShowLineNumbers = _settings.ShowLineNumbers, FontFamily = new FontFamily("Cascadia Mono,Consolas"), FontSize = 15, WordWrap = false, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
         editor.Options.ConvertTabsToSpaces = true; editor.Options.IndentationSize = 4;
-        editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => name, () => RequestedThemeVariant));
+        if (_settings.SyntaxHighlighting)
+            editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => name, () => RequestedThemeVariant));
         editor.TextArea.KeyDown += (_, e) => HandleEditorIndent(editor, e);
+        DiagnosticLog.Info($"Editor created: {name}; syntax={_settings.SyntaxHighlighting}; transformers={editor.TextArea.TextView.LineTransformers.Count}; theme={RequestedThemeVariant}");
         var doc = new EditorDocument(path, name, editor, dirty); editor.TextChanged += (_, _) => { doc.Dirty = true; UpdateTabHeaders(); _program = null; };
         _documents.Add(doc); var tab = new TabItem { Header = name, Content = editor, HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch }; EditorTabs.Items.Add(tab); EditorTabs.SelectedIndex = _documents.Count - 1; UpdateTabHeaders(); editor.Focus(); DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
     }
@@ -163,6 +166,19 @@ public partial class MainWindow : Window
     private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel.StartsWith("▼") || rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
     private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e) { _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked; foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers; _settings.Save(); }
+    private void SyntaxHighlighting_Click(object? s, RoutedEventArgs e)
+    {
+        _settings.SyntaxHighlighting = SyntaxHighlightingMenu.IsChecked;
+        foreach (var d in _documents)
+        {
+            d.Editor.TextArea.TextView.LineTransformers.Clear();
+            if (_settings.SyntaxHighlighting)
+                d.Editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => d.Name, () => RequestedThemeVariant));
+            d.Editor.TextArea.TextView.Redraw();
+        }
+        _settings.Save();
+        DiagnosticLog.Info($"Syntax highlighting toggled: {_settings.SyntaxHighlighting}");
+    }
 
     private void Assemble() { var editor = ActiveEditor ?? throw new InvalidOperationException("No file is open."); if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("C# runtime execution is not implemented yet. The v0.6 C# template is prepared for the upcoming ASMForge simulated-MIPS bridge."); _program = _assembler.Assemble(editor.Text ?? ""); _machine.Load(_program); _history.Clear(); Status.Text = $"Assembled {_program.Instructions.Count} basic instruction(s)"; Messages.Text = $"Assemble completed successfully.\n{_program.Instructions.Count} basic instruction(s) generated."; Console.Text = ""; OutputTabs.SelectedIndex = 1; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); }
     private void Assemble_Click(object? s, RoutedEventArgs e) => Try(Assemble);
@@ -187,6 +203,7 @@ public partial class MainWindow : Window
 internal sealed class AppSettings
 {
     public bool ShowLineNumbers { get; set; } = true;
+    public bool SyntaxHighlighting { get; set; } = true;
     private static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ASMForge", "settings.json");
     public static AppSettings Load() { try { return File.Exists(SettingsPath) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new() : new(); } catch { return new(); } }
     public void Save() { try { Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!); File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true })); } catch { } }

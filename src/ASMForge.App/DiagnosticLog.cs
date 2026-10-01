@@ -16,7 +16,6 @@ internal static class DiagnosticLog
     {
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] [ASMForge] [{level}] {message}" + (ex is null ? "" : Environment.NewLine + ex);
         Debug.WriteLine(line);
-        Trace.WriteLine(line);
         try
         {
             lock (Gate)

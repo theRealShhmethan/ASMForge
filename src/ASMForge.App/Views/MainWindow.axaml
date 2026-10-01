@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.5" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.6" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
         KeyDown="Window_KeyDown">
   <Grid RowDefinitions="Auto,Auto,*,200">
     <Menu Grid.Row="0">
@@ -18,6 +18,7 @@
       </MenuItem>
       <MenuItem Header="_Settings">
         <MenuItem Name="ShowLineNumbersMenu" Header="Show _Line Numbers" ToggleType="CheckBox" IsChecked="True" Click="ShowLineNumbers_Click"/>
+        <MenuItem Name="SyntaxHighlightingMenu" Header="Syntax _Highlighting" ToggleType="CheckBox" IsChecked="True" Click="SyntaxHighlighting_Click"/>
       </MenuItem><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
     </Menu>
     <Border Grid.Row="1" Padding="8" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">

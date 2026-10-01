@@ -1,4 +1,13 @@
-# ASMForge v0.6.5 - Diagnostics Build
+# ASMForge v0.6.6 - Diagnostics Build
+
+## v0.6.6 editor-rendering fix
+
+- Adds the required AvaloniaEdit Fluent theme resource so the editor template actually renders.
+- Keeps runtime editor diagnostics in Visual Studio Debug Output and `%LOCALAPPDATA%\ASMForge\Logs`.
+- Adds **Settings > Syntax Highlighting** so highlighting can be toggled without rebuilding.
+- Removes duplicate diagnostic lines in Visual Studio Output.
+- Keeps line numbers, multi-line Tab/Shift+Tab indentation, file tabs, project explorer filtering, and Run I/O default behavior.
+
 
 This build adds diagnostic logging so editor/layout failures can be inspected instead of guessed.
 
