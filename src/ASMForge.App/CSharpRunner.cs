@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace ASMForge.App;
@@ -11,7 +12,12 @@ internal sealed record CSharpRunResult(bool Success, string Output, string Diagn
 
 internal static class CSharpRunner
 {
-    public static async Task<CSharpRunResult> CompileAndRunAsync(IReadOnlyList<CSharpSource> sources)
+    /// <summary>
+    /// Compiles and runs the given sources. When several files are compiled together,
+    /// <paramref name="entryPath"/> picks which file's static Main runs, so multiple
+    /// programs in one project don't cause CS0017 (more than one entry point).
+    /// </summary>
+    public static async Task<CSharpRunResult> CompileAndRunAsync(IReadOnlyList<CSharpSource> sources, string? entryPath = null)
     {
         if (sources.Count == 0)
             return new CSharpRunResult(false, string.Empty, "No C# source files were found to compile.");
@@ -22,15 +28,24 @@ internal static class CSharpRunner
             .ToArray();
 
         var references = GetMetadataReferences();
+        var options = new CSharpCompilationOptions(
+            OutputKind.ConsoleApplication,
+            optimizationLevel: OptimizationLevel.Debug,
+            nullableContextOptions: NullableContextOptions.Enable,
+            allowUnsafe: false);
         var compilation = CSharpCompilation.Create(
             assemblyName: $"ASMForge.UserProgram.{Guid.NewGuid():N}",
             syntaxTrees: syntaxTrees,
             references: references,
-            options: new CSharpCompilationOptions(
-                OutputKind.ConsoleApplication,
-                optimizationLevel: OptimizationLevel.Debug,
-                nullableContextOptions: NullableContextOptions.Enable,
-                allowUnsafe: false));
+            options: options);
+
+        if (syntaxTrees.Length > 1 && entryPath is not null)
+        {
+            var entryTree = syntaxTrees.FirstOrDefault(t => string.Equals(t.FilePath, entryPath, StringComparison.OrdinalIgnoreCase));
+            var mainType = FindMainType(compilation, entryTree);
+            if (mainType is not null)
+                compilation = compilation.WithOptions(options.WithMainTypeName(mainType));
+        }
 
         await using var peStream = new MemoryStream();
         await using var pdbStream = new MemoryStream();
@@ -43,6 +58,10 @@ internal static class CSharpRunner
                     .OrderBy(d => d.Location.GetLineSpan().Path)
                     .ThenBy(d => d.Location.GetLineSpan().StartLinePosition.Line)
                     .Select(FormatDiagnostic));
+            if (emit.Diagnostics.Any(d => d.Id == "CS0017"))
+                diagnostics += Environment.NewLine + Environment.NewLine +
+                    "Several files define Main. Select the tab whose Main you want to run and press Run again, " +
+                    "or turn off Settings > Run All Project C# Files Together.";
             return new CSharpRunResult(false, string.Empty, diagnostics);
         }
 
@@ -93,6 +112,30 @@ internal static class CSharpRunner
         {
             return new CSharpRunResult(false, string.Empty, ex.ToString());
         }
+    }
+
+    // Returns the full name of the type declaring a static Main in the given file, or null if it has none.
+    private static string? FindMainType(CSharpCompilation compilation, SyntaxTree? tree)
+    {
+        if (tree is null) return null;
+        var model = compilation.GetSemanticModel(tree);
+        foreach (var method in tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>())
+        {
+            if (method.Identifier.ValueText != "Main") continue;
+            if (model.GetDeclaredSymbol(method) is { IsStatic: true } symbol)
+                return symbol.ContainingType.ToDisplayString();
+        }
+        return null;
+    }
+
+    /// <summary>Turns a file name such as "My Test" into a valid C# class name ("My_Test").</summary>
+    public static string ToClassName(string fileNameWithoutExtension)
+    {
+        var name = new string(fileNameWithoutExtension.Select(c => char.IsLetterOrDigit(c) || c == '_' ? c : '_').ToArray());
+        if (name.Length == 0) return "Program";
+        if (char.IsDigit(name[0])) name = "_" + name;
+        if (SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None) name = "@" + name;
+        return name;
     }
 
     private static IReadOnlyList<MetadataReference> GetMetadataReferences()

@@ -152,6 +152,29 @@ public sealed class MipsMachine
         if (!Halted) throw new InvalidOperationException("Execution limit reached.");
     }
 
+    /// <summary>
+    /// Runs until the program halts, a breakpoint or <paramref name="runToAddress"/> is reached,
+    /// <paramref name="cancellation"/> is requested, or <paramref name="maxInstructions"/> have executed.
+    /// The instruction at the starting PC always executes, so continuing from a breakpoint makes progress.
+    /// Runtime errors propagate as exceptions, exactly like <see cref="Step"/>.
+    /// </summary>
+    public StopReason RunUntil(int maxInstructions, IReadOnlySet<uint>? breakpoints = null, uint? runToAddress = null,
+        CancellationToken cancellation = default)
+    {
+        for (var i = 0; i < maxInstructions; i++)
+        {
+            if (Halted) return StopReason.Halted;
+            if (i > 0)
+            {
+                if (runToAddress == PC) return StopReason.RunToTarget;
+                if (breakpoints is not null && breakpoints.Contains(PC)) return StopReason.Breakpoint;
+            }
+            if (cancellation.IsCancellationRequested) return StopReason.Paused;
+            Step();
+        }
+        return Halted ? StopReason.Halted : StopReason.LimitReached;
+    }
+
     private void Execute(Instruction x, ref uint nextPc)
     {
         var a = x.Args;

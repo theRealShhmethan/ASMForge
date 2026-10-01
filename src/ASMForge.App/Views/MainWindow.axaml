@@ -26,10 +26,17 @@
 
       <MenuItem Header="_Run">
         <MenuItem Header="_Assemble" InputGesture="F3" Click="Assemble_Click"/>
-        <MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/>
+        <MenuItem Header="_Run / Continue" InputGesture="F5" Click="Run_Click"/>
+        <MenuItem Header="Run to _Cursor" InputGesture="Ctrl+F10" Click="RunToCursor_Click"/>
+        <MenuItem Header="_Pause" InputGesture="F6" Click="Pause_Click"/>
+        <MenuItem Header="S_top" InputGesture="Shift+F5" Click="Stop_Click"/>
+        <Separator/>
         <MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/>
         <MenuItem Name="BackMenuItem" Header="Step _Back" InputGesture="F9" Click="Back_Click"/>
         <MenuItem Header="_Reset" Click="Reset_Click"/>
+        <Separator/>
+        <MenuItem Header="Toggle _Breakpoint" InputGesture="Ctrl+B" Click="ToggleBreakpoint_Click"/>
+        <MenuItem Header="C_lear All Breakpoints" Click="ClearBreakpoints_Click"/>
       </MenuItem>
 
       <MenuItem Header="_Settings">
@@ -43,6 +50,12 @@
                   ToggleType="CheckBox"
                   IsChecked="True"
                   Click="SyntaxHighlighting_Click"/>
+        <Separator/>
+        <MenuItem Name="CompileAllCSharpMenu"
+                  Header="Run _All Project C# Files Together"
+                  ToggleType="CheckBox"
+                  IsChecked="False"
+                  Click="CompileAllCSharp_Click"/>
       </MenuItem>
 
       <MenuItem Header="_Tools"/>
@@ -60,11 +73,13 @@
           <Button Click="OpenFolder_Click">Open Project</Button>
           <Button Click="Save_Click">Save</Button>
           <Border Width="1" Margin="4,0" Background="{DynamicResource ThemeBorderLowBrush}"/>
-          <Button Click="Assemble_Click">Assemble</Button>
-          <Button Click="Run_Click">Run</Button>
-          <Button Click="Step_Click">Step</Button>
+          <Button Name="AssembleButton" Click="Assemble_Click">Assemble</Button>
+          <Button Name="RunButton" Click="Run_Click" ToolTip.Tip="Run, or continue from a breakpoint/pause (F5)">Run</Button>
+          <Button Name="PauseButton" Click="Pause_Click" IsEnabled="False" ToolTip.Tip="Pause the running program (F6)">Pause</Button>
+          <Button Name="StopButton" Click="Stop_Click" IsEnabled="False" ToolTip.Tip="Stop and reset to the start (Shift+F5)">Stop</Button>
+          <Button Name="StepButton" Click="Step_Click" ToolTip.Tip="Execute one instruction (F10)">Step</Button>
           <Button Name="BackButton" Click="Back_Click" ToolTip.Tip="Undo the last executed instruction (F9)">Back</Button>
-          <Button Click="Reset_Click">Reset</Button>
+          <Button Name="ResetButton" Click="Reset_Click">Reset</Button>
           <TextBlock Name="Status"
                      VerticalAlignment="Center"
                      Margin="10,0,0,0"

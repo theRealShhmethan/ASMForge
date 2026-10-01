@@ -39,6 +39,11 @@ public partial class MainWindow : Window
     private AppSettings _settings = AppSettings.Load();
     // True while restoring or tearing down, so tab changes don't overwrite the saved session.
     private bool _sessionPaused;
+    // Set while a MIPS program runs on a background thread; cancel it to Pause or Stop.
+    private CancellationTokenSource? _runCts;
+    private bool _stopRequested;
+    // Copies console output to Run I/O while a program runs (registers/memory refresh when it stops).
+    private readonly Avalonia.Threading.DispatcherTimer _runTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
     private const string Sample = "# ASMForge v0.8.1 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """"
 using System;
@@ -79,6 +84,10 @@ main:
     }
 }
 """";
+    // New C# files get a class named after the file, e.g. Testing.cs -> class Testing.
+    private static string CsTemplateFor(string fileNameWithoutExtension) =>
+        CsTemplate.Replace("internal static class Program", $"internal static class {CSharpRunner.ToClassName(fileNameWithoutExtension)}");
+
     private uint _memoryViewStart = MipsMemory.DataBase;
 
     public MainWindow()
@@ -88,6 +97,12 @@ main:
         DiagnosticLog.Info("MainWindow XAML initialized");
         ShowLineNumbersMenu.IsChecked = _settings.ShowLineNumbers;
         SyntaxHighlightingMenu.IsChecked = _settings.SyntaxHighlighting;
+        CompileAllCSharpMenu.IsChecked = _settings.CompileAllCSharpFiles;
+        // ConsoleText is replaced (never mutated) by the simulator, so reading it from the UI thread is safe.
+        _runTimer.Tick += (_, _) => Console.Text = _machine.ConsoleText;
+        // Restore the last Hex / Signed / Unsigned / Binary / ASCII choice for each viewer.
+        RegisterFormat.SelectedIndex = Math.Clamp(_settings.RegisterFormatIndex, 0, RegisterFormat.ItemCount - 1);
+        MemoryFormat.SelectedIndex = Math.Clamp(_settings.MemoryFormatIndex, 0, MemoryFormat.ItemCount - 1);
         RestoreSession();
         if (_documents.Count == 0) OpenDocument(null, "main.asm", Sample, false);
         RefreshExplorer(); RefreshDisplay();
@@ -191,7 +206,7 @@ main:
             {
                 var ext = r.Kind == 1 ? ".cs" : ".asm"; var name = r.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ? r.Name : r.Name + ext;
                 Directory.CreateDirectory(r.Location); var path = Path.Combine(r.Location, name);
-                if (!File.Exists(path)) File.WriteAllText(path, r.Kind == 1 ? CsTemplate : "# ASMForge assembly file\n.text\nmain:\n");
+                if (!File.Exists(path)) File.WriteAllText(path, r.Kind == 1 ? CsTemplateFor(Path.GetFileNameWithoutExtension(name)) : "# ASMForge assembly file\n.text\nmain:\n");
                 OpenFilePath(path);
                 RefreshExplorer();
                 Status.Text = $"Created {name}";
@@ -271,6 +286,11 @@ main:
         editor.TextArea.TextEntered += (_, e) => Editor_TextEntered(editor, name, e);
         editor.TextArea.TextEntering += Editor_TextEntering;
 
+        // Breakpoint gutter (click to toggle); kept after line numbers so the order stays stable
+        // when line numbers are toggled.
+        var breakpoints = new BreakpointMargin();
+        editor.TextArea.LeftMargins.Add(breakpoints);
+
         var editorBorder = new Border
         {
             BorderThickness = new Avalonia.Thickness(1),
@@ -283,7 +303,7 @@ main:
 
         DiagnosticLog.Info($"Editor created: {name}; syntax={_settings.SyntaxHighlighting}; transformers={editor.TextArea.TextView.LineTransformers.Count}; theme={RequestedThemeVariant}");
 
-        var doc = new EditorDocument(path, name, editor, editorBorder, dirty);
+        var doc = new EditorDocument(path, name, editor, editorBorder, breakpoints, dirty);
         editor.TextChanged += (_, _) =>
         {
             doc.Dirty = true;
@@ -312,6 +332,9 @@ main:
         UpdateTabHeaders();
         editor.Focus();
         SaveSession();
+        // Measure the new editor immediately so its line-number margin has a valid font size
+        // even if a menu popup closing right after this forces a render (see ShowLineNumbers_Click).
+        if (IsVisible) UpdateLayout();
 
         DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}");
         Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
@@ -486,7 +509,32 @@ main:
 
     private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
     private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; SaveSession(); Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
-    private void ShowLineNumbers_Click(object? s, RoutedEventArgs e) { _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked; foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers; _settings.Save(); }
+    private void ShowLineNumbers_Click(object? s, RoutedEventArgs e)
+    {
+        _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked;
+        _settings.Save();
+
+        // Closing the Settings menu popup forces an immediate render. If a newly added
+        // AvaloniaEdit LineNumberMargin is rendered before it has been measured, its font size
+        // is still 0 and FormattedText throws "emSize must be greater than zero".
+        // So apply the change after the popup has closed, then measure the new margins at once.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers;
+                UpdateLayout();
+            }
+            catch (Exception ex) { DiagnosticLog.Error("Failed to toggle line numbers", ex); }
+        });
+    }
+    private void CompileAllCSharp_Click(object? s, RoutedEventArgs e)
+    {
+        _settings.CompileAllCSharpFiles = CompileAllCSharpMenu.IsChecked;
+        _settings.Save();
+        Status.Text = _settings.CompileAllCSharpFiles ? "Run compiles all project C# files" : "Run compiles only the active C# file";
+    }
+
     private void SyntaxHighlighting_Click(object? s, RoutedEventArgs e)
     {
         _settings.SyntaxHighlighting = SyntaxHighlightingMenu.IsChecked;
@@ -544,10 +592,13 @@ main:
     }
     private void Assemble_Click(object? s, RoutedEventArgs e)
     {
+        if (BlockWhileRunning()) return;
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Status.Text = "C# files are compiled when you press Run";
-            Messages.Text = "C# source detected. Press Run (F5) to compile all C# files in the current project and execute its Main method.";
+            Messages.Text = _settings.CompileAllCSharpFiles
+                ? "C# source detected. Press Run (F5) to compile all C# files in the current project and execute this file's Main method."
+                : "C# source detected. Press Run (F5) to compile this file and execute its Main method. To compile all project C# files together, enable Settings > Run All Project C# Files Together.";
             OutputTabs.SelectedIndex = 0;
             return;
         }
@@ -556,6 +607,7 @@ main:
 
     private void Step_Click(object? s, RoutedEventArgs e)
     {
+        if (BlockWhileRunning()) return;
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Messages.Text = "Instruction stepping applies to MIPS assembly. Run the C# host, then use ASMForgeRuntime.Step() inside C# when host-controlled stepping is needed.";
@@ -568,16 +620,192 @@ main:
 
     private async void Run_Click(object? s, RoutedEventArgs e)
     {
+        if (BlockWhileRunning()) return;
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             await RunCSharpAsync();
             return;
         }
-        Try(() => { if (_program is null) Assemble(); _machine.Run(); Status.Text = "Finished"; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); });
+        await RunMipsAsync(null);
+    }
+
+    private async void RunToCursor_Click(object? s, RoutedEventArgs e)
+    {
+        if (BlockWhileRunning()) return;
+        var editor = ActiveEditor;
+        if (editor is null || ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            Status.Text = "Run to Cursor applies to MIPS assembly";
+            return;
+        }
+        await RunMipsAsync(editor.TextArea.Caret.Line);
+    }
+
+    private void Pause_Click(object? s, RoutedEventArgs e)
+    {
+        if (_runCts is null) { Status.Text = "Nothing is running"; return; }
+        Status.Text = "Pausing…";
+        _runCts.Cancel();
+    }
+
+    private void Stop_Click(object? s, RoutedEventArgs e)
+    {
+        if (_runCts is not null)
+        {
+            // RunMipsAsync resets the program once the background run has actually stopped.
+            _stopRequested = true;
+            Status.Text = "Stopping…";
+            _runCts.Cancel();
+            return;
+        }
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true) return;
+        Try(Assemble);
+        Status.Text = "Stopped";
+    }
+
+    private void ToggleBreakpoint_Click(object? s, RoutedEventArgs e)
+    {
+        var doc = ActiveDocument;
+        if (doc is null) return;
+        var line = doc.Editor.TextArea.Caret.Line;
+        doc.Breakpoints.Toggle(line);
+        Status.Text = doc.Breakpoints.HasBreakpoint(line) ? $"Breakpoint set on line {line}" : $"Breakpoint removed from line {line}";
+    }
+
+    private void ClearBreakpoints_Click(object? s, RoutedEventArgs e)
+    {
+        foreach (var doc in _documents) doc.Breakpoints.Clear();
+        Status.Text = "All breakpoints cleared";
+    }
+
+    // Instruction limit for one Run/Continue; Pause is available while it runs.
+    private const int MaxRunInstructions = 10_000_000;
+
+    /// <summary>
+    /// Runs the assembled program on a background thread until it halts, hits a breakpoint,
+    /// reaches <paramref name="runToLine"/>, or is paused/stopped. The UI stays responsive and
+    /// Run I/O updates live; registers and memory refresh when the run stops.
+    /// </summary>
+    private async Task RunMipsAsync(int? runToLine)
+    {
+        try { if (_program is null) Assemble(); }
+        catch (Exception ex) { ShowError(ex); return; }
+        var program = _program!;
+
+        if (_machine.Halted)
+        {
+            Status.Text = "Program finished. Press Reset to run it again.";
+            return;
+        }
+
+        uint? runTo = null;
+        if (runToLine is int line)
+        {
+            var target = program.Instructions.FirstOrDefault(x => x.Line == line);
+            if (target is null)
+            {
+                Status.Text = $"Line {line} has no instruction to run to";
+                return;
+            }
+            runTo = target.Address;
+        }
+
+        var breakpoints = BreakpointAddresses(program, out var skipped);
+        var cts = new CancellationTokenSource();
+        _runCts = cts;
+        _stopRequested = false;
+        SetRunningUi(true);
+        Status.Text = "Running…";
+        _runTimer.Start();
+
+        StopReason reason = StopReason.Halted;
+        Exception? error = null;
+        try
+        {
+            reason = await Task.Run(() => _machine.RunUntil(MaxRunInstructions, breakpoints, runTo, cts.Token));
+        }
+        catch (Exception ex)
+        {
+            error = ex;
+        }
+        finally
+        {
+            _runTimer.Stop();
+            _runCts = null;
+            cts.Dispose();
+            SetRunningUi(false);
+        }
+
+        if (error is not null) { ShowError(error); return; }
+        if (_stopRequested)
+        {
+            Try(Assemble);
+            Status.Text = "Stopped";
+            return;
+        }
+
+        WorkspaceTabs.SelectedIndex = 1;
+        RefreshDisplay();
+        var where = CurrentSourceLineText();
+        Status.Text = reason switch
+        {
+            StopReason.Breakpoint => $"Breakpoint hit{where}. Press Run (F5) to continue.",
+            StopReason.RunToTarget => $"Reached cursor{where}",
+            StopReason.Paused => $"Paused{where}",
+            StopReason.LimitReached => $"Paused after {MaxRunInstructions:N0} instructions{where} (possible infinite loop). Press Run to continue.",
+            _ => "Finished"
+        };
+        if (skipped > 0)
+        {
+            Messages.Text = $"{skipped} breakpoint(s) are on lines with no instruction (comments, labels, data) and were ignored.";
+        }
+    }
+
+    private string CurrentSourceLineText()
+    {
+        if (_program is null || _machine.Halted || _machine.InstructionIndex >= _program.Instructions.Count) return string.Empty;
+        return $" at line {_program.Instructions[_machine.InstructionIndex].Line} (0x{_machine.PC:X8})";
+    }
+
+    // Maps the active editor's breakpoint lines to the address of the first instruction on each line.
+    private HashSet<uint> BreakpointAddresses(AssemblyProgram program, out int skipped)
+    {
+        var result = new HashSet<uint>();
+        skipped = 0;
+        var doc = ActiveDocument;
+        if (doc is null) return result;
+        foreach (var line in doc.Breakpoints.Lines)
+        {
+            var instruction = program.Instructions.FirstOrDefault(x => x.Line == line);
+            if (instruction is null) skipped++;
+            else result.Add(instruction.Address);
+        }
+        return result;
+    }
+
+    private bool IsRunning => _runCts is not null;
+
+    private bool BlockWhileRunning()
+    {
+        if (!IsRunning) return false;
+        Status.Text = "Program is running. Pause (F6) or Stop (Shift+F5) first.";
+        return true;
+    }
+
+    private void SetRunningUi(bool running)
+    {
+        PauseButton.IsEnabled = running;
+        StopButton.IsEnabled = running;
+        RunButton.IsEnabled = !running;
+        StepButton.IsEnabled = !running;
+        BackButton.IsEnabled = !running;
+        AssembleButton.IsEnabled = !running;
+        ResetButton.IsEnabled = !running;
     }
 
     private void Reset_Click(object? s, RoutedEventArgs e)
     {
+        if (BlockWhileRunning()) return;
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Console.Text = string.Empty;
@@ -589,6 +817,7 @@ main:
     }
     private void Back_Click(object? s, RoutedEventArgs e)
     {
+        if (BlockWhileRunning()) return;
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
         {
             Messages.Text = "Step Back applies to MIPS assembly. In C# host code, use ASMForgeRuntime.StepBack().";
@@ -622,7 +851,7 @@ main:
             Console.Text = string.Empty;
             OutputTabs.SelectedIndex = 1;
 
-            var result = await CSharpRunner.CompileAndRunAsync(sources);
+            var result = await CSharpRunner.CompileAndRunAsync(sources, ActiveDocument?.Path);
             Console.Text = result.Output;
             Messages.Text = result.Diagnostics;
             if (result.Success)
@@ -648,9 +877,10 @@ main:
         var active = ActiveDocument;
         var activeIsProjectMember = active?.Path is not null && IsPathInsideProject(active.Path);
 
-        // A C# file inside an open project compiles with all C# project files.
-        // A loose C# file compiles by itself, even if another project is open.
-        if (activeIsProjectMember && _projectFolder is not null && Directory.Exists(_projectFolder))
+        // By default only the active C# file is compiled. With "Run All Project C# Files Together"
+        // on, a C# file inside the open project compiles with all C# project files; the active
+        // file's Main is used as the entry point. A loose C# file always compiles by itself.
+        if (_settings.CompileAllCSharpFiles && activeIsProjectMember && _projectFolder is not null && Directory.Exists(_projectFolder))
         {
             foreach (var path in Directory.EnumerateFiles(_projectFolder, "*.cs", SearchOption.AllDirectories)
                          .Where(p => !IsBuildOutputPath(p)))
@@ -687,8 +917,17 @@ main:
         return parts.Any(p => p.Equals("bin", StringComparison.OrdinalIgnoreCase) || p.Equals("obj", StringComparison.OrdinalIgnoreCase));
     }
 
-    private void RegisterFormat_SelectionChanged(object? s, SelectionChangedEventArgs e) { if (RegistersList is not null) RefreshDisplay(); }
-    private void MemoryFormat_SelectionChanged(object? s, SelectionChangedEventArgs e) { if (MemoryGrid is not null) RefreshMemoryViewer(); }
+    private void RegisterFormat_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        if (RegisterFormat is not null && RegisterFormat.SelectedIndex >= 0) { _settings.RegisterFormatIndex = RegisterFormat.SelectedIndex; _settings.Save(); }
+        if (RegistersList is not null) RefreshDisplay();
+    }
+
+    private void MemoryFormat_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        if (MemoryFormat is not null && MemoryFormat.SelectedIndex >= 0) { _settings.MemoryFormatIndex = MemoryFormat.SelectedIndex; _settings.Save(); }
+        if (MemoryGrid is not null) RefreshMemoryViewer();
+    }
     private void ThemeMode_SelectionChanged(object? s, SelectionChangedEventArgs e)
     {
         if (ThemeMode is null) return;
@@ -705,7 +944,7 @@ main:
             d.Editor.TextArea.TextView.Redraw();
         }
     }
-    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F9) { Back_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
+    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.B) { ToggleBreakpoint_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.F5) { Stop_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F6) { Pause_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F9) { Back_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.F10) { RunToCursor_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
     private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
     {
         // AvaloniaEdit 11.x can try to render its line-number margin while the
@@ -717,6 +956,7 @@ main:
             // Save the session first, then pause saving so teardown tab changes can't overwrite it.
             SaveSession();
             _sessionPaused = true;
+            _runCts?.Cancel(); // let a running program's background thread stop
             _completionWindow?.Close();
             _completionWindow = null;
             foreach (var document in _documents)
@@ -736,7 +976,8 @@ main:
     private void ShowError(Exception ex) { DiagnosticLog.Error("UI operation failed", ex); Status.Text = "Error"; Messages.Text = ex.Message; OutputTabs.SelectedIndex = 0; RefreshDisplay(); }
     private void RefreshDisplay()
     {
-        if (RegistersList is null) return;
+        // While running, the simulator is owned by the background thread; refresh when it stops.
+        if (RegistersList is null || IsRunning) return;
         var previous = PreviousRegisterValues();
         if (!ReferenceEquals(RegistersList.ItemsSource, _registerRows)) RegistersList.ItemsSource = _registerRows;
         // Row index matches the register change index: 0-31, then HI (32) and LO (33).
@@ -865,7 +1106,7 @@ main:
 
     private void RefreshMemoryViewer()
     {
-        if (MemoryGrid is null) return;
+        if (MemoryGrid is null || IsRunning) return;
         var previous = PreviousMemoryBytes();
         if (!ReferenceEquals(MemoryGrid.ItemsSource, _memoryRows)) MemoryGrid.ItemsSource = _memoryRows;
         var start = _memoryViewStart & 0xfffffff0u;
@@ -980,14 +1221,16 @@ main:
         public string Name;
         public TextEditor Editor;
         public Border EditorBorder;
+        public BreakpointMargin Breakpoints;
         public bool Dirty;
 
-        public EditorDocument(string? path, string name, TextEditor editor, Border editorBorder, bool dirty)
+        public EditorDocument(string? path, string name, TextEditor editor, Border editorBorder, BreakpointMargin breakpoints, bool dirty)
         {
             Path = path;
             Name = name;
             Editor = editor;
             EditorBorder = editorBorder;
+            Breakpoints = breakpoints;
             Dirty = dirty;
         }
     }
@@ -997,6 +1240,11 @@ internal sealed class AppSettings
 {
     public bool ShowLineNumbers { get; set; } = true;
     public bool SyntaxHighlighting { get; set; } = true;
+    public bool CompileAllCSharpFiles { get; set; }
+
+    // Display format index for each viewer: 0 Hex, 1 Signed, 2 Unsigned, 3 Binary, 4 ASCII.
+    public int RegisterFormatIndex { get; set; }
+    public int MemoryFormatIndex { get; set; }
 
     // Session state, restored on the next launch.
     public string? ProjectFolder { get; set; }

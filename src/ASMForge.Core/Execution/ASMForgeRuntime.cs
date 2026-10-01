@@ -52,6 +52,25 @@ public sealed class ASMForgeRuntime
         }
     }
 
+    /// <summary>
+    /// Runs until the program halts, hits one of <paramref name="breakpoints"/> (text addresses),
+    /// reaches <paramref name="runToAddress"/>, is cancelled, or executes <paramref name="maxInstructions"/>.
+    /// </summary>
+    public StopReason RunUntil(IReadOnlySet<uint>? breakpoints = null, uint? runToAddress = null,
+        int maxInstructions = 1_000_000, CancellationToken cancellation = default)
+    {
+        EnsureLoaded();
+        IsRunning = true;
+        try
+        {
+            return _machine.RunUntil(maxInstructions, breakpoints, runToAddress, cancellation);
+        }
+        finally
+        {
+            IsRunning = false;
+        }
+    }
+
     public void Step()
     {
         EnsureLoaded();

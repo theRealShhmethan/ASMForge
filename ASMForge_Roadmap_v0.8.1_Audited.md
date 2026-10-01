@@ -144,7 +144,7 @@ Make the features that already exist dependable before expanding the application
 - [ ] Prevent crashes when closing tabs
 - [ ] Prevent crashes when opening malformed files
 - [ ] Prevent crashes when the active editor has no document
-- [ ] Prevent crashes when simulator is reset mid-run
+- [T] Prevent crashes when simulator is reset mid-run *(Reset/Step/Assemble blocked while running)*
 - [ ] Prevent crashes when memory viewer is on an invalid address
 - [ ] Prevent crashes when register values are edited
 - [ ] Prevent crashes when project paths no longer exist
@@ -427,15 +427,15 @@ Make ASMForge feel like a real debugger.
 
 ## 5.1 Breakpoints
 
-- [ ] Click gutter to add breakpoint
-- [ ] Click again to remove
-- [ ] Show breakpoint icon
-- [ ] Persist breakpoints while project is open
-- [ ] Run until breakpoint
-- [ ] Skip invalid breakpoint lines
+- [T] Click gutter to add breakpoint
+- [T] Click again to remove
+- [T] Show breakpoint icon
+- [T] Persist breakpoints while project is open *(while the file stays open; not saved across restarts yet)*
+- [T] Run until breakpoint
+- [T] Skip invalid breakpoint lines
 - [ ] Breakpoint list window
 - [ ] Enable / disable breakpoint
-- [ ] Remove all breakpoints
+- [T] Remove all breakpoints
 
 ## 5.2 Conditional Breakpoints
 
@@ -454,14 +454,14 @@ mem[0x10010000] == 5
 ## 5.3 Execution Controls
 
 - [x] Run
-- [ ] Pause
-- [ ] Stop
+- [T] Pause
+- [T] Stop
 - [x] Reset
 - [x] Step Into
 - [T] Step Back
-- [ ] Run to Cursor
+- [T] Run to Cursor
 - [ ] Restart
-- [ ] Continue
+- [T] Continue
 
 ## 5.4 Execution Speed
 
@@ -996,6 +996,8 @@ Make C# integration a first-class ASMForge feature.
 - [x] project-wide compilation
 - [x] compiler diagnostics
 - [~] warning levels
+- [T] choose entry point: active file's Main when compiling all project files
+- [T] setting: compile only the active file (default) or all project C# files
 - [ ] click diagnostic → file/line
 
 ## Runtime
@@ -1034,7 +1036,7 @@ Add:
 - [ ] events for memory change
 - [ ] events for instruction executed
 - [ ] events for syscall
-- [ ] breakpoint API
+- [T] breakpoint API (`RunUntil`)
 - [ ] load from file
 - [ ] load from project
 - [ ] symbol lookup
@@ -1429,8 +1431,8 @@ Keep large programs responsive.
 - [ ] benchmark simulator speed
 - [ ] benchmark memory viewer
 - [ ] virtualize large memory tables
-- [ ] avoid refreshing entire UI every instruction at full speed
-- [ ] batch UI updates during Run
+- [T] avoid refreshing entire UI every instruction at full speed
+- [T] batch UI updates during Run
 - [ ] avoid unnecessary allocations
 - [ ] profile large source files
 - [ ] profile 1,000,000+ instruction runs
@@ -1768,7 +1770,7 @@ Features:
 - [ ] restore cursor positions
 - [ ] restore breakpoints
 - [ ] restore panel layout
-- [ ] restore memory/register display preferences
+- [T] restore memory/register display preferences
 
 ---
 
@@ -1886,10 +1888,10 @@ Before calling ASMForge 1.0:
 ## Debugger
 
 - [x] Run
-- [ ] Stop
+- [T] Stop
 - [x] Step
 - [T] Backstep
-- [ ] breakpoints
+- [T] breakpoints
 - [x] registers
 - [x] memory
 - [T] changed-value highlighting
@@ -1941,7 +1943,7 @@ Aim to have these polished:
 - [x] register viewer
 - [x] memory viewer
 - [ ] machine-code viewer
-- [ ] breakpoints
+- [T] breakpoints
 - [~] step / backstep
 - [ ] stack visualization
 - [ ] heap visualization
@@ -2202,7 +2204,7 @@ Before showing ASMForge to a teacher:
 - [x] version number visible
 - [ ] sample project ready
 - [x] assembly runs
-- [ ] breakpoint works
+- [T] breakpoint works
 - [x] step works
 - [T] backstep works
 - [x] register change is visible
