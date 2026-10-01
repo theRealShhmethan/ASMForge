@@ -28,7 +28,7 @@ public partial class MainWindow : Window
     private CompletionWindow? _completionWindow;
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.7.0 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.7.2 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """using System;\n\nnamespace ASMForgeProject;\n\ninternal static class Program\n{\n    // Assembly source is kept beside the C# code so ASMForge can route it\n    // through its simulated MIPS engine. Native host memory/registers are never touched.\n    private const string AssemblySource = \"\"\"\n.text\nmain:\n    li $t0, 5\n    li $t1, 6\n    add $t2, $t0, $t1\n    li $v0, 10\n    syscall\n\"\"\";\n\n    private static void Main()\n    {\n        // v0.6 prepares the interop template. The C# -> simulated MIPS runtime bridge\n        // will connect this source to ASMForge.Core in the next runtime layer.\n        Console.WriteLine(\"ASMForge C# + ASM project ready.\");\n    }\n}\n""";
 
     public MainWindow()
@@ -115,7 +115,21 @@ public partial class MainWindow : Window
         try { File.WriteAllText(path!, doc.Editor.Text ?? ""); doc.Path = path; doc.Name = Path.GetFileName(path); doc.Dirty = false; UpdateTabHeaders(); RefreshExplorer(); Status.Text = $"Saved {doc.Name}"; }
         catch (Exception ex) { ShowError(ex); }
     }
-    private void CloseFile_Click(object? s, RoutedEventArgs e) { var i = EditorTabs.SelectedIndex; if (i < 0) return; _documents.RemoveAt(i); EditorTabs.Items.RemoveAt(i); if (_documents.Count == 0) OpenDocument(null, "Untitled.asm", "", true); else { EditorTabs.SelectedIndex = Math.Min(i, _documents.Count - 1); } }
+    private void CloseFile_Click(object? s, RoutedEventArgs e) => CloseDocumentAt(EditorTabs.SelectedIndex);
+
+    private void CloseDocumentAt(int index)
+    {
+        if (index < 0 || index >= _documents.Count) return;
+        // Remove AvaloniaEdit's line-number margin before detaching the editor.
+        // This avoids the known teardown path where the margin can render with an invalid font size.
+        _documents[index].Editor.ShowLineNumbers = false;
+        _documents.RemoveAt(index);
+        EditorTabs.Items.RemoveAt(index);
+        if (_documents.Count == 0)
+            OpenDocument(null, "Untitled.asm", "", true);
+        else
+            EditorTabs.SelectedIndex = Math.Min(index, _documents.Count - 1);
+    }
 
     private void OpenFilePath(string path)
     {
@@ -175,6 +189,13 @@ public partial class MainWindow : Window
             Content = editorBorder,
             HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+        };
+        tab.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(tab).Properties.PointerUpdateKind != PointerUpdateKind.MiddleButtonPressed) return;
+            var index = EditorTabs.Items.IndexOf(tab);
+            CloseDocumentAt(index);
+            e.Handled = true;
         };
 
         EditorTabs.Items.Add(tab);
@@ -370,7 +391,48 @@ public partial class MainWindow : Window
         DiagnosticLog.Info($"Syntax highlighting toggled: {_settings.SyntaxHighlighting}");
     }
 
-    private void Assemble() { var editor = ActiveEditor ?? throw new InvalidOperationException("No file is open."); if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("C# runtime execution is not implemented yet. The v0.6 C# template is prepared for the upcoming ASMForge simulated-MIPS bridge."); _program = _assembler.Assemble(editor.Text ?? ""); _machine.Load(_program); _history.Clear(); Status.Text = $"Assembled {_program.Instructions.Count} basic instruction(s)"; Messages.Text = $"Assemble completed successfully.\n{_program.Instructions.Count} basic instruction(s) generated."; Console.Text = ""; OutputTabs.SelectedIndex = 1; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); }
+    private void Assemble()
+    {
+        var editor = ActiveEditor ?? throw new InvalidOperationException("No file is open.");
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+            throw new InvalidOperationException("C# runtime execution is not implemented yet. The C# template is prepared for the upcoming ASMForge simulated-MIPS bridge.");
+
+        var source = editor.Text ?? string.Empty;
+        _program = _assembler.Assemble(source);
+        _machine.Load(_program);
+        _history.Clear();
+
+        var warnings = GetAssemblyWarnings(source);
+        Status.Text = warnings.Count == 0
+            ? $"Assembled {_program.Instructions.Count} basic instruction(s)"
+            : $"Assembled with {warnings.Count} warning(s)";
+
+        Messages.Text = $"Assemble completed successfully.\n{_program.Instructions.Count} basic instruction(s) generated." +
+                        (warnings.Count == 0 ? string.Empty : "\n\nWarnings:\n" + string.Join("\n", warnings));
+        Console.Text = string.Empty;
+        OutputTabs.SelectedIndex = 1;
+        WorkspaceTabs.SelectedIndex = 1;
+        RefreshDisplay();
+    }
+
+    private static List<string> GetAssemblyWarnings(string source)
+    {
+        var warnings = new List<string>();
+        var lines = source.Replace("\r", string.Empty).Split('\n');
+        var numericRegister = new Regex(@"\$(?<n>\d{1,2})\b", RegexOptions.Compiled);
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = lines[i].Split('#')[0];
+            foreach (Match match in numericRegister.Matches(code))
+            {
+                if (!int.TryParse(match.Groups["n"].Value, out var number) || number is < 0 or > 31)
+                    continue;
+                warnings.Add($"Line {i + 1}: {match.Value} is numeric register {number}, which is {RegisterFile.Names[number]}.");
+            }
+        }
+        return warnings;
+    }
     private void Assemble_Click(object? s, RoutedEventArgs e) => Try(Assemble);
     private void Step_Click(object? s, RoutedEventArgs e) => Try(() => { if (_program is null) Assemble(); if (!_machine.Halted) _history.Push(_machine.InstructionIndex); _machine.Step(); Status.Text = _machine.Halted ? "Finished" : "Stepped"; RefreshDisplay(); });
     private void Run_Click(object? s, RoutedEventArgs e) => Try(() => { if (_program is null) Assemble(); _machine.Run(); Status.Text = "Finished"; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); });
@@ -393,11 +455,34 @@ public partial class MainWindow : Window
             d.Editor.TextArea.TextView.Redraw();
         }
     }
-    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
+    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
+    private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
+    {
+        // AvaloniaEdit 11.x can try to render its line-number margin while the
+        // window is being torn down. At that point inherited font metrics may
+        // already be invalid, which can produce an emSize <= 0 exception.
+        // Remove the line-number margins before the compositor disposes them.
+        try
+        {
+            _completionWindow?.Close();
+            _completionWindow = null;
+            foreach (var document in _documents)
+            {
+                document.Editor.ShowLineNumbers = false;
+                if (document.Editor.FontSize <= 0) document.Editor.FontSize = 15;
+            }
+            DiagnosticLog.Info("Window closing: line-number margins disabled before editor teardown.");
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLog.Warn($"Editor teardown preparation failed: {ex.Message}");
+        }
+    }
+
     private void Try(Action a) { try { a(); } catch (Exception ex) { ShowError(ex); } }
     private void ShowError(Exception ex) { DiagnosticLog.Error("UI operation failed", ex); Status.Text = "Error"; Messages.Text = ex.Message; OutputTabs.SelectedIndex = 0; RefreshDisplay(); }
     private void RefreshDisplay() { if (RegistersList is null) return; var rows = new List<string>(); for (var i = 0; i < 32; i++) rows.Add($"{RegisterFile.Names[i],5}  {FormatRegister(_machine.Registers[i])}"); rows.Add($"   HI  {FormatRegister(_machine.Registers.HI)}"); rows.Add($"   LO  {FormatRegister(_machine.Registers.LO)}"); RegistersList.ItemsSource = rows; PcText.Text = $"PC  0x{_machine.PC:X8}"; Console.Text = _machine.ConsoleText ?? ""; RefreshTextSegment(); HighlightCurrentSourceLine(); }
-    private void RefreshTextSegment() { if (TextSegmentGrid is null) return; if (_program is null) { TextSegmentGrid.ItemsSource = Array.Empty<TextRow>(); return; } var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n'); var data = _program.Instructions.Select((x, i) => new TextRow($"0x{0x00400000u + (uint)(i * 4):X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList(); TextSegmentGrid.ItemsSource = data; var index = !_machine.Halted && _machine.InstructionIndex < data.Count ? _machine.InstructionIndex : -1; TextSegmentGrid.SelectedIndex = index; if (index >= 0) TextSegmentGrid.ScrollIntoView(data[index], null); }
+    private void RefreshTextSegment() { if (TextSegmentGrid is null) return; if (_program is null) { TextSegmentGrid.ItemsSource = Array.Empty<TextRow>(); return; } var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n'); var data = _program.Instructions.Select((x, i) => new TextRow($"0x{x.Address:X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList(); TextSegmentGrid.ItemsSource = data; var index = !_machine.Halted && _machine.InstructionIndex < data.Count ? _machine.InstructionIndex : -1; TextSegmentGrid.SelectedIndex = index; if (index >= 0) TextSegmentGrid.ScrollIntoView(data[index], null); }
     private void HighlightCurrentSourceLine()
     {
         var editor = ActiveEditor;

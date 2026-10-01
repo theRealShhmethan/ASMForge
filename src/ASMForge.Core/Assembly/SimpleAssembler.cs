@@ -1,89 +1,533 @@
+using ASMForge.Core.Cpu;
+using ASMForge.Core.Memory;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
+
 namespace ASMForge.Core.Assembly;
 
+/// <summary>
+/// MARS-compatible source assembler used by ASMForge's execution engine.
+/// It intentionally keeps source-level instructions instead of emitting machine
+/// words so the editor can retain rich source mappings while still using MIPS
+/// virtual addresses, data directives and labels correctly.
+/// </summary>
 public sealed class SimpleAssembler
 {
-    private sealed record SourceStatement(int Line, string Op, string[] Args, string Source, List<string> Labels);
+    private enum Section { Text, Data }
+    private sealed record ParsedLine(int Line, string Source, Section Section, List<string> Labels, string? Op, string[] Args, bool IsDirective);
+
+    private static readonly HashSet<string> KnownOperations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Integer/core MIPS instructions.
+        "add", "addu", "addi", "addiu", "sub", "subu",
+        "mul", "mult", "multu", "div", "divu", "madd", "maddu", "msub", "msubu",
+        "and", "andi", "or", "ori", "xor", "xori", "nor",
+        "sll", "sllv", "srl", "srlv", "sra", "srav",
+        "slt", "slti", "sltu", "sltiu", "clo", "clz",
+        "lui", "lw", "lwl", "lwr", "sw", "swl", "swr", "ll", "sc",
+        "lb", "lbu", "lh", "lhu", "sb", "sh",
+        "mfhi", "mflo", "mthi", "mtlo",
+        "beq", "bne", "bgez", "bgezal", "bgtz", "blez", "bltz", "bltzal",
+        "j", "jal", "jalr", "jr",
+        "syscall", "break", "nop",
+
+        // MARS pseudo-instructions implemented by ASMForge.
+        "li", "la", "move", "neg", "negu", "not", "rem", "remu",
+        "b", "bal", "beqz", "bnez", "bgt", "bge", "blt", "ble", "bgtu", "bgeu", "bltu", "bleu",
+        "seq", "sne", "sgt", "sge", "sle", "sgtu", "sgeu", "sleu"
+    };
+
+    private static readonly Regex RegisterToken = new(@"\$[A-Za-z0-9]+", RegexOptions.Compiled);
+    private readonly Dictionary<string, long> _equates = new(StringComparer.OrdinalIgnoreCase);
 
     public AssemblyProgram Assemble(string source)
     {
-        var statements = Parse(source);
-        var instructions = new List<Instruction>();
-        var labels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _equates.Clear();
+        var lines = Parse(source);
+        Validate(lines);
 
-        foreach (var statement in statements)
+        // Collect constants before address calculation so forward .eqv references
+        // do not change pseudo-instruction expansion counts between passes.
+        foreach (var line in lines.Where(x => x.IsDirective && string.Equals(x.Op, ".eqv", StringComparison.OrdinalIgnoreCase)))
         {
-            foreach (var label in statement.Labels)
-                labels[label] = instructions.Count;
-
-            foreach (var expanded in Expand(statement))
-                instructions.Add(expanded);
+            if (line.Args.Length < 2) Error(line, ".eqv requires a name and value.");
+            _equates[line.Args[0]] = ParseNumber(line.Args[1]);
         }
 
-        return new AssemblyProgram(instructions, labels);
+        var symbols = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+        var labels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var textAddress = AssemblyProgram.DefaultTextBase;
+        var dataAddress = AssemblyProgram.DefaultDataBase;
+        var instructionIndex = 0;
+
+        // Pass 1: establish all source symbols and segment addresses.
+        foreach (var line in lines)
+        {
+            if (line.IsDirective && line.Op?.Equals(".eqv", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                continue;
+            }
+
+            var currentAddress = line.Section == Section.Text ? textAddress : dataAddress;
+            foreach (var label in line.Labels)
+            {
+                if (symbols.ContainsKey(label))
+                    Error(line, $"symbol '{label}' is already defined.");
+                symbols[label] = currentAddress;
+                if (line.Section == Section.Text)
+                    labels[label] = instructionIndex;
+            }
+
+            if (line.IsDirective)
+            {
+                if (line.Section == Section.Data)
+                    dataAddress = checked(dataAddress + (uint)DirectiveSize(line.Op!, line.Args, dataAddress));
+                continue;
+            }
+
+            if (line.Op is not null && line.Section == Section.Text)
+            {
+                var count = ExpandedInstructionCount(line.Op, line.Args);
+                textAddress = checked(textAddress + (uint)(count * 4));
+                instructionIndex += count;
+            }
+        }
+
+        // Pass 2: emit initialized data and source-level executable instructions.
+        var memory = new Dictionary<uint, byte>();
+        dataAddress = AssemblyProgram.DefaultDataBase;
+        foreach (var line in lines)
+        {
+            if (!line.IsDirective || line.Section != Section.Data)
+                continue;
+            EmitDirective(line, memory, symbols, ref dataAddress);
+        }
+
+        var instructions = new List<Instruction>();
+        textAddress = AssemblyProgram.DefaultTextBase;
+        foreach (var line in lines)
+        {
+            if (line.IsDirective || line.Section != Section.Text || line.Op is null)
+                continue;
+
+            foreach (var instruction in Expand(line, symbols, textAddress))
+            {
+                instructions.Add(instruction with { Address = textAddress });
+                textAddress += 4;
+            }
+        }
+
+        var entryPoint = symbols.TryGetValue("main", out var main) ? main : AssemblyProgram.DefaultTextBase;
+        return new AssemblyProgram(instructions, labels, symbols, memory,
+            AssemblyProgram.DefaultTextBase, AssemblyProgram.DefaultDataBase, entryPoint, new Dictionary<string, long>(_equates, StringComparer.OrdinalIgnoreCase));
     }
 
-    private static List<SourceStatement> Parse(string source)
+    private static void Validate(IEnumerable<ParsedLine> lines)
     {
-        var result = new List<SourceStatement>();
+        foreach (var line in lines)
+        {
+            if (line.IsDirective || line.Op is null) continue;
+            if (!KnownOperations.Contains(line.Op))
+            {
+                var suggestion = FindClosestOperation(line.Op);
+                var hint = suggestion is null ? string.Empty : $"\nDid you mean '{suggestion}'?";
+                Error(line, $"unknown instruction '{line.Op}'.{hint}");
+            }
+
+            foreach (var arg in line.Args)
+            {
+                foreach (Match match in RegisterToken.Matches(arg))
+                {
+                    try { _ = RegisterFile.Parse(match.Value); }
+                    catch (ArgumentException) { Error(line, $"invalid register '{match.Value}'."); }
+                }
+            }
+        }
+    }
+
+    private List<ParsedLine> Parse(string source)
+    {
+        var result = new List<ParsedLine>();
+        var section = Section.Text;
         var pendingLabels = new List<string>();
-        var lines = source.Replace("\r", "").Split('\n');
+        var lines = source.Replace("\r", string.Empty).Split('\n');
 
         for (var i = 0; i < lines.Length; i++)
         {
             var raw = lines[i];
-            var s = raw.Split('#')[0].Trim();
-            if (s.Length == 0 || s.StartsWith('.')) continue;
-
-            while (s.Contains(':'))
-            {
-                var p = s.IndexOf(':');
-                var label = s[..p].Trim();
-                if (label.Length > 0) pendingLabels.Add(label);
-                s = s[(p + 1)..].Trim();
-                if (s.Length == 0) break;
-            }
+            var s = StripComment(raw).Trim();
             if (s.Length == 0) continue;
 
-            var parts = s.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
-            var args = parts.Length > 1
-                ? parts[1].Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray()
-                : Array.Empty<string>();
-            result.Add(new SourceStatement(i + 1, parts[0].ToLowerInvariant(), args, raw.Trim(), new List<string>(pendingLabels)));
+            var labelsHere = new List<string>(pendingLabels);
             pendingLabels.Clear();
+            while (TryTakeLeadingLabel(ref s, out var label))
+            {
+                if (!IsIdentifier(label))
+                    throw new InvalidOperationException($"Line {i + 1}: invalid label '{label}'.\n    {raw.Trim()}");
+                labelsHere.Add(label);
+                if (s.Length == 0) break;
+            }
+
+            if (s.Length == 0)
+            {
+                pendingLabels.AddRange(labelsHere);
+                continue;
+            }
+
+            var firstSpace = s.IndexOfAny(new[] { ' ', '\t' });
+            var op = (firstSpace < 0 ? s : s[..firstSpace]).Trim().ToLowerInvariant();
+            var rest = firstSpace < 0 ? string.Empty : s[(firstSpace + 1)..].Trim();
+            var args = SplitArguments(rest);
+            var isDirective = op.StartsWith('.');
+
+            if (isDirective && op is ".text" or ".ktext")
+            {
+                result.Add(new ParsedLine(i + 1, raw.Trim(), section, labelsHere, op, args, true));
+                section = Section.Text;
+                continue;
+            }
+            if (isDirective && op is ".data" or ".kdata")
+            {
+                result.Add(new ParsedLine(i + 1, raw.Trim(), section, labelsHere, op, args, true));
+                section = Section.Data;
+                continue;
+            }
+
+            result.Add(new ParsedLine(i + 1, raw.Trim(), section, labelsHere, op, args, isDirective));
+        }
+
+        if (pendingLabels.Count > 0)
+        {
+            var fake = new ParsedLine(lines.Length, pendingLabels[^1] + ":", section, pendingLabels, null, Array.Empty<string>(), false);
+            result.Add(fake);
         }
         return result;
     }
 
-    private static IEnumerable<Instruction> Expand(SourceStatement s)
+    private static string StripComment(string line)
     {
-        Instruction I(string op, string[] args) => new(s.Line, op, args, s.Source, $"{op} {string.Join(", ", args)}".Trim());
-        switch (s.Op)
+        var inString = false;
+        var quote = '\0';
+        var escape = false;
+        for (var i = 0; i < line.Length; i++)
         {
-            case "move" when s.Args.Length == 2:
-                yield return I("addu", new[] { s.Args[0], s.Args[1], "$zero" });
-                yield break;
-            case "rem" when s.Args.Length == 3:
-                yield return I("div", new[] { s.Args[1], s.Args[2] });
-                yield return I("mfhi", new[] { s.Args[0] });
-                yield break;
-            case "li" when s.Args.Length == 2 && TryImmediate(s.Args[1], out var imm) && imm is >= short.MinValue and <= ushort.MaxValue:
-                yield return I("addiu", new[] { s.Args[0], "$zero", s.Args[1] });
-                yield break;
+            var c = line[i];
+            if (escape) { escape = false; continue; }
+            if (inString && c == '\\') { escape = true; continue; }
+            if (c is '"' or '\'')
+            {
+                if (!inString) { inString = true; quote = c; }
+                else if (quote == c) inString = false;
+                continue;
+            }
+            if (!inString && c == '#') return line[..i];
+        }
+        return line;
+    }
+
+    private static bool TryTakeLeadingLabel(ref string text, out string label)
+    {
+        label = string.Empty;
+        var colon = text.IndexOf(':');
+        if (colon < 0) return false;
+        var candidate = text[..colon].Trim();
+        if (candidate.IndexOfAny(new[] { ' ', '\t', ',', '(', ')' }) >= 0) return false;
+        label = candidate;
+        text = text[(colon + 1)..].Trim();
+        return candidate.Length > 0;
+    }
+
+    private static string[] SplitArguments(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return Array.Empty<string>();
+        var result = new List<string>();
+        var current = new StringBuilder();
+        var inString = false;
+        var quote = '\0';
+        var escape = false;
+        var parenDepth = 0;
+        foreach (var c in text)
+        {
+            if (escape) { current.Append(c); escape = false; continue; }
+            if (inString && c == '\\') { current.Append(c); escape = true; continue; }
+            if (c is '"' or '\'')
+            {
+                current.Append(c);
+                if (!inString) { inString = true; quote = c; }
+                else if (quote == c) inString = false;
+                continue;
+            }
+            if (!inString)
+            {
+                if (c == '(') parenDepth++;
+                if (c == ')') parenDepth--;
+                if (c == ',' && parenDepth == 0)
+                {
+                    if (current.ToString().Trim().Length > 0) result.Add(current.ToString().Trim());
+                    current.Clear();
+                    continue;
+                }
+            }
+            current.Append(c);
+        }
+        if (current.ToString().Trim().Length > 0) result.Add(current.ToString().Trim());
+
+        // MARS allows whitespace in .eqv and several directive forms.
+        if (result.Count == 1 && !inString)
+        {
+            var one = result[0];
+            var parts = Regex.Split(one, @"\s+").Where(x => x.Length > 0).ToArray();
+            if (parts.Length > 1 && !one.Contains('"') && !one.Contains('\'')) return parts;
+        }
+        return result.ToArray();
+    }
+
+    private int DirectiveSize(string op, string[] args, uint address)
+    {
+        return op.ToLowerInvariant() switch
+        {
+            ".text" or ".data" or ".ktext" or ".kdata" or ".globl" or ".global" or ".set" or ".eqv" or ".extern" => 0,
+            ".align" => AlignmentPadding(address, 1u << checked((int)ParseNumber(Require(args, 0, op)))),
+            ".space" => checked((int)ParseNumber(Require(args, 0, op))),
+            ".byte" => args.Length,
+            ".half" => AlignmentPadding(address, 2) + args.Length * 2,
+            ".word" => AlignmentPadding(address, 4) + args.Length * 4,
+            ".float" => AlignmentPadding(address, 4) + args.Length * 4,
+            ".double" => AlignmentPadding(address, 8) + args.Length * 8,
+            ".ascii" => args.Sum(x => Encoding.UTF8.GetByteCount(ParseStringLiteral(x))),
+            ".asciiz" => args.Sum(x => Encoding.UTF8.GetByteCount(ParseStringLiteral(x)) + 1),
+            ".include" => throw new NotSupportedException(".include requires file-system-aware assembly and is not enabled in this build yet."),
+            ".macro" or ".end_macro" => throw new NotSupportedException("MARS macros are not enabled in this build yet."),
+            _ => throw new InvalidOperationException($"Unknown assembler directive '{op}'.")
+        };
+    }
+
+    private void EmitDirective(ParsedLine line, Dictionary<uint, byte> memory, IReadOnlyDictionary<string, uint> symbols, ref uint address)
+    {
+        var op = line.Op!.ToLowerInvariant();
+        switch (op)
+        {
+            case ".text": case ".data": case ".ktext": case ".kdata": case ".globl": case ".global": case ".set": case ".eqv": case ".extern":
+                return;
+            case ".align":
+                address += (uint)AlignmentPadding(address, 1u << checked((int)ParseNumber(Require(line.Args, 0, op))));
+                return;
+            case ".space":
+                address += checked((uint)ParseNumber(Require(line.Args, 0, op)));
+                return;
+            case ".byte":
+                foreach (var a in line.Args) WriteByte(memory, ref address, unchecked((byte)ResolveValue(a, symbols)));
+                return;
+            case ".half":
+                AlignForData(ref address, 2);
+                foreach (var a in line.Args) WriteHalf(memory, ref address, unchecked((ushort)ResolveValue(a, symbols)));
+                return;
+            case ".word":
+                AlignForData(ref address, 4);
+                foreach (var a in line.Args) WriteWord(memory, ref address, unchecked((uint)ResolveValue(a, symbols)));
+                return;
+            case ".float":
+                AlignForData(ref address, 4);
+                foreach (var a in line.Args)
+                {
+                    var bits = unchecked((uint)BitConverter.SingleToInt32Bits(float.Parse(a, CultureInfo.InvariantCulture)));
+                    WriteWord(memory, ref address, bits);
+                }
+                return;
+            case ".double":
+                AlignForData(ref address, 8);
+                foreach (var a in line.Args)
+                {
+                    var bits = unchecked((ulong)BitConverter.DoubleToInt64Bits(double.Parse(a, CultureInfo.InvariantCulture)));
+                    WriteWord(memory, ref address, (uint)bits);
+                    WriteWord(memory, ref address, (uint)(bits >> 32));
+                }
+                return;
+            case ".ascii": case ".asciiz":
+                foreach (var a in line.Args)
+                {
+                    foreach (var b in Encoding.UTF8.GetBytes(ParseStringLiteral(a))) WriteByte(memory, ref address, b);
+                    if (op == ".asciiz") WriteByte(memory, ref address, 0);
+                }
+                return;
             default:
-                yield return I(s.Op, s.Args);
-                yield break;
+                _ = DirectiveSize(op, line.Args, address); // throws useful error
+                return;
         }
     }
 
-    private static bool TryImmediate(string s, out int value)
+    private IEnumerable<Instruction> Expand(ParsedLine line, IReadOnlyDictionary<string, uint> symbols, uint address)
     {
-        try
+        var op = line.Op!.ToLowerInvariant();
+        var a = line.Args;
+        Instruction I(string basicOp, params string[] args) => new(line.Line, basicOp, args, line.Source, $"{basicOp} {string.Join(", ", args)}".Trim());
+
+        switch (op)
         {
-            value = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
-                ? Convert.ToInt32(s[2..], 16)
-                : int.Parse(s);
-            return true;
+            case "move" when a.Length == 2:
+                yield return I("addu", a[0], a[1], "$zero"); yield break;
+            case "neg" when a.Length == 2:
+                yield return I("sub", a[0], "$zero", a[1]); yield break;
+            case "negu" when a.Length == 2:
+                yield return I("subu", a[0], "$zero", a[1]); yield break;
+            case "not" when a.Length == 2:
+                yield return I("nor", a[0], a[1], "$zero"); yield break;
+            case "rem" when a.Length == 3:
+                yield return I("div", a[1], a[2]); yield return I("mfhi", a[0]); yield break;
+            case "remu" when a.Length == 3:
+                yield return I("divu", a[1], a[2]); yield return I("mfhi", a[0]); yield break;
+            case "li" when a.Length == 2:
+            {
+                var value = unchecked((uint)ResolveValue(a[1], symbols));
+                if (unchecked((int)value) is >= short.MinValue and <= short.MaxValue)
+                    yield return I("addiu", a[0], "$zero", unchecked((int)value).ToString(CultureInfo.InvariantCulture));
+                else if (value <= ushort.MaxValue)
+                    yield return I("ori", a[0], "$zero", value.ToString(CultureInfo.InvariantCulture));
+                else
+                {
+                    yield return I("lui", a[0], ((value >> 16) & 0xffff).ToString(CultureInfo.InvariantCulture));
+                    yield return I("ori", a[0], a[0], (value & 0xffff).ToString(CultureInfo.InvariantCulture));
+                }
+                yield break;
+            }
+            case "la" when a.Length == 2:
+            {
+                var value = unchecked((uint)ResolveValue(a[1], symbols));
+                yield return I("lui", a[0], ((value >> 16) & 0xffff).ToString(CultureInfo.InvariantCulture));
+                yield return I("ori", a[0], a[0], (value & 0xffff).ToString(CultureInfo.InvariantCulture));
+                yield break;
+            }
+            case "b" when a.Length == 1:
+                yield return I("beq", "$zero", "$zero", a[0]); yield break;
+            case "bal" when a.Length == 1:
+                yield return I("bgezal", "$zero", a[0]); yield break;
+            case "beqz" when a.Length == 2:
+                yield return I("beq", a[0], "$zero", a[1]); yield break;
+            case "bnez" when a.Length == 2:
+                yield return I("bne", a[0], "$zero", a[1]); yield break;
+            default:
+                yield return I(op, a); yield break;
         }
-        catch { value = 0; return false; }
+    }
+
+    private int ExpandedInstructionCount(string op, string[] args)
+    {
+        op = op.ToLowerInvariant();
+        if (op is "rem" or "remu" && args.Length == 3) return 2;
+        if (op == "la" && args.Length == 2) return 2;
+        if (op == "li" && args.Length == 2)
+        {
+            try
+            {
+                var value = unchecked((uint)ResolveValue(args[1], new Dictionary<string, uint>()));
+                return unchecked((int)value) is >= short.MinValue and <= short.MaxValue || value <= ushort.MaxValue ? 1 : 2;
+            }
+            catch { return 2; }
+        }
+        return 1;
+    }
+
+    private long ResolveValue(string token, IReadOnlyDictionary<string, uint> symbols)
+    {
+        var s = token.Trim();
+        if (_equates.TryGetValue(s, out var eq)) return eq;
+        if (symbols.TryGetValue(s, out var address)) return address;
+        var plus = FindTopLevelPlusMinus(s);
+        if (plus > 0)
+        {
+            var left = s[..plus].Trim();
+            var right = s[plus..].Trim();
+            if (symbols.TryGetValue(left, out address)) return unchecked((long)address + ParseNumber(right));
+            if (_equates.TryGetValue(left, out eq)) return eq + ParseNumber(right);
+        }
+        return ParseNumber(s);
+    }
+
+    private long ParseNumber(string token)
+    {
+        var s = token.Trim();
+        if (_equates.TryGetValue(s, out var eq)) return eq;
+        if (s.Length >= 3 && s[0] == '\'' && s[^1] == '\'')
+        {
+            var decoded = ParseStringLiteral("\"" + s[1..^1].Replace("\"", "\\\"") + "\"");
+            if (decoded.Length != 1) throw new FormatException($"Invalid character literal {token}.");
+            return decoded[0];
+        }
+        var sign = 1L;
+        if (s.StartsWith('-')) { sign = -1; s = s[1..]; }
+        else if (s.StartsWith('+')) s = s[1..];
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return sign * Convert.ToInt64(s[2..], 16);
+        if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase)) return sign * Convert.ToInt64(s[2..], 2);
+        return sign * long.Parse(s, CultureInfo.InvariantCulture);
+    }
+
+    private static string ParseStringLiteral(string token)
+    {
+        var s = token.Trim();
+        if (s.Length < 2 || s[0] != '"' || s[^1] != '"')
+            throw new FormatException($"Expected quoted string, got {token}.");
+        var body = s[1..^1];
+        var result = new StringBuilder();
+        for (var i = 0; i < body.Length; i++)
+        {
+            var c = body[i];
+            if (c != '\\') { result.Append(c); continue; }
+            if (++i >= body.Length) throw new FormatException("Incomplete escape sequence.");
+            c = body[i];
+            result.Append(c switch
+            {
+                'n' => '\n', 'r' => '\r', 't' => '\t', '0' => '\0', '\\' => '\\', '\'' => '\'', '"' => '"',
+                _ => c
+            });
+        }
+        return result.ToString();
+    }
+
+    private static int AlignmentPadding(uint address, uint alignment)
+    {
+        if (alignment <= 1) return 0;
+        var mod = address % alignment;
+        return mod == 0 ? 0 : checked((int)(alignment - mod));
+    }
+
+    private static void AlignForData(ref uint address, uint alignment) => address += (uint)AlignmentPadding(address, alignment);
+    private static void WriteByte(Dictionary<uint, byte> memory, ref uint address, byte value) { memory[address++] = value; }
+    private static void WriteHalf(Dictionary<uint, byte> memory, ref uint address, ushort value)
+    {
+        WriteByte(memory, ref address, (byte)value); WriteByte(memory, ref address, (byte)(value >> 8));
+    }
+    private static void WriteWord(Dictionary<uint, byte> memory, ref uint address, uint value)
+    {
+        WriteByte(memory, ref address, (byte)value); WriteByte(memory, ref address, (byte)(value >> 8));
+        WriteByte(memory, ref address, (byte)(value >> 16)); WriteByte(memory, ref address, (byte)(value >> 24));
+    }
+
+    private static int FindTopLevelPlusMinus(string s)
+    {
+        for (var i = 1; i < s.Length; i++) if (s[i] is '+' or '-') return i;
+        return -1;
+    }
+    private static bool IsIdentifier(string s) => Regex.IsMatch(s, @"^[A-Za-z_.$][A-Za-z0-9_.$]*$");
+    private static string Require(string[] args, int index, string op) => index < args.Length ? args[index] : throw new InvalidOperationException($"{op} is missing an operand.");
+    private static void Error(ParsedLine line, string message) => throw new InvalidOperationException($"Line {line.Line}: {message}\n    {line.Source}");
+
+    private static string? FindClosestOperation(string value)
+    {
+        var best = KnownOperations.Select(op => (Op: op, Distance: EditDistance(value, op)))
+            .OrderBy(x => x.Distance).ThenBy(x => x.Op, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+        return best.Op is not null && best.Distance <= Math.Max(2, value.Length / 3) ? best.Op : null;
+    }
+
+    private static int EditDistance(string a, string b)
+    {
+        a = a.ToLowerInvariant(); b = b.ToLowerInvariant();
+        var d = new int[a.Length + 1, b.Length + 1];
+        for (var i = 0; i <= a.Length; i++) d[i, 0] = i;
+        for (var j = 0; j <= b.Length; j++) d[0, j] = j;
+        for (var i = 1; i <= a.Length; i++)
+            for (var j = 1; j <= b.Length; j++)
+                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+        return d[a.Length, b.Length];
     }
 }

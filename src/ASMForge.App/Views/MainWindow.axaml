@@ -1,12 +1,13 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ASMForge.App.Views.MainWindow"
-        Title="ASMForge v0.7.0"
+        Title="ASMForge v0.7.2"
         Width="1450"
         Height="900"
         MinWidth="1080"
         MinHeight="700"
-        KeyDown="Window_KeyDown">
+        KeyDown="Window_KeyDown"
+        Closing="MainWindow_Closing">
 
   <Grid RowDefinitions="Auto,Auto,*">
 
@@ -24,7 +25,7 @@
       <MenuItem Header="_Edit"/>
 
       <MenuItem Header="_Run">
-        <MenuItem Header="_Assemble" Click="Assemble_Click"/>
+        <MenuItem Header="_Assemble" InputGesture="F3" Click="Assemble_Click"/>
         <MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/>
         <MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/>
         <MenuItem Header="_Back" Click="Back_Click"/>

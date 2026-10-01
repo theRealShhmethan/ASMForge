@@ -63,6 +63,26 @@ internal static class MipsCompletionCatalog
         new("syscall", "syscall", "Invoke a MARS-compatible system service selected by $v0.", "Instruction"),
         new("nop", "nop", "No operation.", "Pseudo-instruction"),
 
+        new("lui", "lui rt, immediate", "Load a 16-bit immediate into the upper half of rt.", "Instruction"),
+        new("sllv", "sllv rd, rt, rs", "Shift left logical by the low five bits of rs.", "Instruction"),
+        new("srlv", "srlv rd, rt, rs", "Shift right logical by the low five bits of rs.", "Instruction"),
+        new("srav", "srav rd, rt, rs", "Shift right arithmetic by the low five bits of rs.", "Instruction"),
+        new("sltu", "sltu rd, rs, rt", "Unsigned less-than comparison.", "Instruction"),
+        new("sltiu", "sltiu rt, rs, immediate", "Unsigned less-than immediate comparison.", "Instruction"),
+        new("mthi", "mthi rs", "Copy rs into HI.", "Instruction"),
+        new("mtlo", "mtlo rs", "Copy rs into LO.", "Instruction"),
+        new("bgez", "bgez rs, label", "Branch when rs is greater than or equal to zero.", "Instruction"),
+        new("bgtz", "bgtz rs, label", "Branch when rs is greater than zero.", "Instruction"),
+        new("blez", "blez rs, label", "Branch when rs is less than or equal to zero.", "Instruction"),
+        new("bltz", "bltz rs, label", "Branch when rs is less than zero.", "Instruction"),
+        new("jalr", "jalr [rd,] rs", "Jump to the address in rs and save a return address.", "Instruction"),
+        new("neg", "neg rd, rs", "Pseudo-instruction: signed negation.", "Pseudo-instruction"),
+        new("negu", "negu rd, rs", "Pseudo-instruction: unsigned/wrapping negation.", "Pseudo-instruction"),
+        new("not", "not rd, rs", "Pseudo-instruction: bitwise complement.", "Pseudo-instruction"),
+        new("b", "b label", "Pseudo-instruction: unconditional branch.", "Pseudo-instruction"),
+        new("beqz", "beqz rs, label", "Pseudo-instruction: branch when rs is zero.", "Pseudo-instruction"),
+        new("bnez", "bnez rs, label", "Pseudo-instruction: branch when rs is not zero.", "Pseudo-instruction"),
+
         new(".text", ".text [address]", "Begin the text/code segment.", "Directive"),
         new(".data", ".data [address]", "Begin the static data segment.", "Directive"),
         new(".globl", ".globl symbol", "Make a symbol globally visible.", "Directive"),
@@ -71,7 +91,12 @@ internal static class MipsCompletionCatalog
         new(".byte", ".byte value [, value ...]", "Store one or more bytes.", "Directive"),
         new(".space", ".space n", "Reserve n bytes in the data segment.", "Directive"),
         new(".ascii", ".ascii \"text\"", "Store a string without a trailing zero byte.", "Directive"),
-        new(".asciiz", ".asciiz \"text\"", "Store a zero-terminated string.", "Directive")
+        new(".asciiz", ".asciiz \"text\"", "Store a zero-terminated string.", "Directive"),
+        new(".align", ".align n", "Align the next data item to a 2^n-byte boundary.", "Directive"),
+        new(".float", ".float value [, value ...]", "Store IEEE-754 single-precision values.", "Directive"),
+        new(".double", ".double value [, value ...]", "Store IEEE-754 double-precision values.", "Directive"),
+        new(".eqv", ".eqv name value", "Define a source constant.", "Directive"),
+        new(".extern", ".extern symbol size", "Declare an external symbol (accepted for MARS source compatibility).", "Directive")
     };
 
     private static readonly string[] Registers =
