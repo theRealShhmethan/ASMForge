@@ -167,17 +167,77 @@ internal sealed class AppSettings
 
 internal sealed class CodeColorizer : DocumentColorizingTransformer
 {
-    private readonly Func<string> _name; private readonly Func<ThemeVariant?> _theme;
-    private static readonly Regex TokenRegex = new(@"(?<comment>\#.*$|//.*$)|(?<string>\"(?:\\.|[^\"\\])*\")|(?<directive>\.[A-Za-z_][\w.]*)|(?<register>\$(?:zero|at|v[01]|a[0-3]|t[0-9]|s[0-7]|k[01]|gp|sp|fp|ra|\d+))|(?<number>\b(?:0x[0-9A-Fa-f]+|\d+)\b)|(?<label>\b[A-Za-z_]\w*(?=:))|(?<keyword>\b(?:add|addu|addi|addiu|sub|subu|mul|mult|multu|div|divu|rem|and|andi|or|ori|xor|xori|nor|sll|srl|sra|slt|slti|sltu|sltiu|lw|sw|lb|lbu|lh|lhu|sb|sh|li|la|move|mfhi|mflo|mthi|mtlo|beq|bne|bgt|bge|blt|ble|j|jal|jr|syscall|nop)\b)|(?<cs>\b(?:using|namespace|class|struct|public|private|internal|protected|static|void|int|uint|string|bool|const|return|new|if|else|for|foreach|while|switch|case|break|true|false|null|var)\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    public CodeColorizer(Func<string> name, Func<ThemeVariant?> theme) { _name = name; _theme = theme; }
+    private readonly Func<string> _name;
+    private readonly Func<ThemeVariant?> _theme;
+
+    private static readonly string[] TokenGroupNames =
+    {
+        "comment", "string", "directive", "register", "number", "label", "keyword", "cs"
+    };
+
+    private static readonly Regex TokenRegex = new(
+        "(?<comment>\\#.*$|//.*$)|" +
+        "(?<string>\\\"(?:\\\\.|[^\\\"\\\\])*\\\")|" +
+        "(?<directive>\\.[A-Za-z_][\\w.]*)|" +
+        "(?<register>\\$(?:zero|at|v[01]|a[0-3]|t[0-9]|s[0-7]|k[01]|gp|sp|fp|ra|\\d+))|" +
+        "(?<number>\\b(?:0x[0-9A-Fa-f]+|\\d+)\\b)|" +
+        "(?<label>\\b[A-Za-z_]\\w*(?=:))|" +
+        "(?<keyword>\\b(?:add|addu|addi|addiu|sub|subu|mul|mult|multu|div|divu|rem|and|andi|or|ori|xor|xori|nor|sll|srl|sra|slt|slti|sltu|sltiu|lw|sw|lb|lbu|lh|lhu|sb|sh|li|la|move|mfhi|mflo|mthi|mtlo|beq|bne|bgt|bge|blt|ble|j|jal|jr|syscall|nop)\\b)|" +
+        "(?<cs>\\b(?:using|namespace|class|struct|public|private|internal|protected|static|void|int|uint|string|bool|const|return|new|if|else|for|foreach|while|switch|case|break|true|false|null|var)\\b)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+    public CodeColorizer(Func<string> name, Func<ThemeVariant?> theme)
+    {
+        _name = name;
+        _theme = theme;
+    }
+
     protected override void ColorizeLine(DocumentLine line)
     {
-        var text = CurrentContext.Document.GetText(line); var isCs = _name().EndsWith(".cs", StringComparison.OrdinalIgnoreCase); var dark = _theme() == ThemeVariant.Dark;
-        foreach (Match m in TokenRegex.Matches(text))
+        var text = CurrentContext.Document.GetText(line);
+        var isCs = _name().EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+        var dark = _theme() == ThemeVariant.Dark;
+
+        foreach (Match match in TokenRegex.Matches(text))
         {
-            var g = m.Groups.Cast<Group>().FirstOrDefault(x => x.Success && x.Name != "0"); if (g is null) continue; if (isCs && g.Name is "keyword" or "directive" or "register" or "label") continue; if (!isCs && g.Name == "cs") continue;
-            var brush = g.Name switch { "comment" => new SolidColorBrush(dark ? Color.FromRgb(106,153,85) : Color.FromRgb(0,128,0)), "string" => new SolidColorBrush(dark ? Color.FromRgb(206,145,120) : Color.FromRgb(163,21,21)), "directive" => new SolidColorBrush(dark ? Color.FromRgb(197,134,192) : Color.FromRgb(128,0,128)), "register" => new SolidColorBrush(dark ? Color.FromRgb(78,201,176) : Color.FromRgb(0,128,128)), "number" => new SolidColorBrush(dark ? Color.FromRgb(181,206,168) : Color.FromRgb(9,134,88)), "label" => new SolidColorBrush(dark ? Color.FromRgb(220,220,170) : Color.FromRgb(121,94,38)), _ => new SolidColorBrush(dark ? Color.FromRgb(86,156,214) : Color.FromRgb(0,0,255)) };
-            ChangeLinePart(line.Offset + g.Index, line.Offset + g.Index + g.Length, element => element.TextRunProperties.SetForegroundBrush(brush));
+            Group? token = null;
+            string? tokenType = null;
+
+            foreach (var groupName in TokenGroupNames)
+            {
+                var group = match.Groups[groupName];
+                if (!group.Success)
+                    continue;
+
+                token = group;
+                tokenType = groupName;
+                break;
+            }
+
+            if (token is null || tokenType is null)
+                continue;
+
+            if (isCs && tokenType is "keyword" or "directive" or "register" or "label")
+                continue;
+
+            if (!isCs && tokenType == "cs")
+                continue;
+
+            var brush = tokenType switch
+            {
+                "comment" => new SolidColorBrush(dark ? Color.FromRgb(106, 153, 85) : Color.FromRgb(0, 128, 0)),
+                "string" => new SolidColorBrush(dark ? Color.FromRgb(206, 145, 120) : Color.FromRgb(163, 21, 21)),
+                "directive" => new SolidColorBrush(dark ? Color.FromRgb(197, 134, 192) : Color.FromRgb(128, 0, 128)),
+                "register" => new SolidColorBrush(dark ? Color.FromRgb(78, 201, 176) : Color.FromRgb(0, 128, 128)),
+                "number" => new SolidColorBrush(dark ? Color.FromRgb(181, 206, 168) : Color.FromRgb(9, 134, 88)),
+                "label" => new SolidColorBrush(dark ? Color.FromRgb(220, 220, 170) : Color.FromRgb(121, 94, 38)),
+                _ => new SolidColorBrush(dark ? Color.FromRgb(86, 156, 214) : Color.FromRgb(0, 0, 255))
+            };
+
+            ChangeLinePart(
+                line.Offset + token.Index,
+                line.Offset + token.Index + token.Length,
+                element => element.TextRunProperties.SetForegroundBrush(brush));
         }
     }
 }

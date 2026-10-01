@@ -1,8 +1,8 @@
-# ASMForge v0.6
+# ASMForge v0.6.1
 
 ASMForge is a MARS-inspired MIPS learning IDE written in C#/.NET with Avalonia.
 
-## v0.6 editor upgrade
+## v0.6.1 editor upgrade
 
 - AvaloniaEdit-based source editor
 - Settings > Show Line Numbers (persisted)
@@ -16,4 +16,4 @@ ASMForge is a MARS-inspired MIPS learning IDE written in C#/.NET with Avalonia.
 
 ## Important
 
-C# files are editable and receive the interop-ready template, but v0.6 does not yet execute C# or invoke the simulated MIPS engine from C#. The template intentionally does not claim native inline MIPS execution.
+C# files are editable and receive the interop-ready template, but v0.6.1 does not yet execute C# or invoke the simulated MIPS engine from C#. The template intentionally does not claim native inline MIPS execution.
