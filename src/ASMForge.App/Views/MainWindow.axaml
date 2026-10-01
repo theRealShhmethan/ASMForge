@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.1" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.2" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
         KeyDown="Window_KeyDown">
   <Grid RowDefinitions="Auto,Auto,*,200">
     <Menu Grid.Row="0">
@@ -17,17 +17,13 @@
         <MenuItem Header="_Assemble" Click="Assemble_Click"/><MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/><MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/><MenuItem Header="_Back" Click="Back_Click"/><MenuItem Header="_Reset" Click="Reset_Click"/>
       </MenuItem>
       <MenuItem Header="_Settings">
-		  <MenuItem Name="ShowLineNumbersMenu"
-			Header="Show _Line Numbers"
-			ToggleType="CheckBox"
-			IsChecked="True"
-			Click="ShowLineNumbers_Click"/>
+        <MenuItem Name="ShowLineNumbersMenu" Header="Show _Line Numbers" ToggleType="CheckBox" IsChecked="True" Click="ShowLineNumbers_Click"/>
       </MenuItem><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
     </Menu>
     <Border Grid.Row="1" Padding="8" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Orientation="Horizontal" Spacing="7">
-          <Button Click="New_Click">New</Button><Button Click="Open_Click">Open</Button><Button Click="Save_Click">Save</Button>
+          <Button Click="New_Click">New</Button><Button Click="Open_Click">Open File</Button><Button Click="OpenFolder_Click">Open Project</Button><Button Click="Save_Click">Save</Button>
           <Border Width="1" Margin="4,0" Background="{DynamicResource ThemeBorderLowBrush}"/>
           <Button Click="Assemble_Click">Assemble</Button><Button Click="Run_Click">Run</Button><Button Click="Step_Click">Step</Button><Button Click="Back_Click">Back</Button><Button Click="Reset_Click">Reset</Button>
           <TextBlock Name="Status" VerticalAlignment="Center" Margin="10,0,0,0" Text="Ready"/>
@@ -42,8 +38,9 @@
           <Border BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}" Padding="5">
             <Grid RowDefinitions="Auto,*"><TextBlock FontWeight="Bold" Text="EXPLORER" Margin="5"/><ListBox Grid.Row="1" Name="ExplorerList" DoubleTapped="ExplorerList_DoubleTapped"/></Grid>
           </Border>
-          <Grid Grid.Column="1" RowDefinitions="*">
-            <TabControl Name="EditorTabs" SelectionChanged="EditorTabs_SelectionChanged"/>
+          <Grid Grid.Column="1" RowDefinitions="Auto,*">
+            <TabControl Name="EditorTabs" Grid.Row="0" MinHeight="42" SelectionChanged="EditorTabs_SelectionChanged"/>
+            <ContentControl Name="EditorHost" Grid.Row="1" Margin="4,0,0,0"/>
           </Grid>
         </Grid>
       </TabItem>
@@ -57,6 +54,6 @@
         </Grid>
       </TabItem>
     </TabControl>
-    <TabControl Grid.Row="3" Margin="6" Name="OutputTabs"><TabItem Header="Messages"><TextBox Name="Messages" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem><TabItem Header="Run I/O"><TextBox Name="Console" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem></TabControl>
+    <TabControl Grid.Row="3" Margin="6" Name="OutputTabs" SelectedIndex="1"><TabItem Header="Messages"><TextBox Name="Messages" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem><TabItem Header="Run I/O"><TextBox Name="Console" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem></TabControl>
   </Grid>
 </Window>

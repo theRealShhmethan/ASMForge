@@ -1,8 +1,8 @@
-# ASMForge v0.6.1
+# ASMForge v0.6.2.2
 
 ASMForge is a MARS-inspired MIPS learning IDE written in C#/.NET with Avalonia.
 
-## v0.6.1 editor upgrade
+## v0.6.2.2 editor upgrade
 
 - AvaloniaEdit-based source editor
 - Settings > Show Line Numbers (persisted)
@@ -16,4 +16,14 @@ ASMForge is a MARS-inspired MIPS learning IDE written in C#/.NET with Avalonia.
 
 ## Important
 
-C# files are editable and receive the interop-ready template, but v0.6.1 does not yet execute C# or invoke the simulated MIPS engine from C#. The template intentionally does not claim native inline MIPS execution.
+C# files are editable and receive the interop-ready template, but v0.6.2.2 does not yet execute C# or invoke the simulated MIPS engine from C#. The template intentionally does not claim native inline MIPS execution.
+
+
+## v0.6.2 regression fixes
+- Restored the visible AvaloniaEdit editor surface beneath file tabs.
+- Added distinct Open File and Open Project toolbar actions.
+- Open File now exposes Assembly, C#, and combined source filters.
+- Ctrl+W closes the active file tab.
+- Ctrl+O opens files; Ctrl+Shift+O opens projects/folders.
+- Run I/O is the default output tab; Messages comes forward on errors.
+- Corrected the Avalonia line-number menu checkbox declaration.
