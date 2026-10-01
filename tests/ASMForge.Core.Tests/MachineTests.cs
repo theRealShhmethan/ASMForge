@@ -1,0 +1,2 @@
+using ASMForge.Core.Assembly; using ASMForge.Core.Execution; using Xunit;
+namespace ASMForge.Core.Tests; public class MachineTests { [Fact] public void AddsRegisters(){var p=new SimpleAssembler().Assemble("li $t0, 5\nli $t1, 6\nadd $t2, $t0, $t1");var m=new MipsMachine();m.Load(p);m.Run();Assert.Equal(11,m.Registers[10]);} [Fact] public void ZeroRegisterCannotChange(){var p=new SimpleAssembler().Assemble("li $zero, 99");var m=new MipsMachine();m.Load(p);m.Run();Assert.Equal(0,m.Registers[0]);} }
