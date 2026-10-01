@@ -1,5 +1,8 @@
 namespace ASMForge.Core.Assembly;
 
+/// <summary>An assembly error found by <see cref="SimpleAssembler.CheckAll"/>; Line is 1-based (0 = not tied to a line).</summary>
+public sealed record AssemblyError(int Line, string Message);
+
 public sealed record Instruction(int Line, string Op, string[] Args, string Source, string BasicSource)
 {
     public uint Address { get; init; }

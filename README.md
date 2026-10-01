@@ -1,4 +1,4 @@
-# ASMForge v0.11.0
+# ASMForge v0.12.0
 
 ASMForge is a MIPS assembly IDE and simulator built with C# and Avalonia. It aims to be a modern,
 teacher-ready alternative to MARS: a MARS-compatible assembler, a debugger with breakpoints and step back,

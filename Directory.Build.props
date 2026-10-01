@@ -2,6 +2,6 @@
   <!-- Single source of truth for the ASMForge version. The app reads it at runtime for the
        title bar and About dialog, so bump it here only. -->
   <PropertyGroup>
-    <Version>0.11.0</Version>
+    <Version>0.12.0</Version>
   </PropertyGroup>
 </Project>

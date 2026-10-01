@@ -9,6 +9,7 @@ using AvaloniaEdit;
 using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
+using AvaloniaEdit.Search;
 using ASMForge.Core.Assembly;
 using ASMForge.Core.Cpu;
 using ASMForge.Core.Execution;
@@ -26,6 +27,12 @@ namespace ASMForge.App.Views;
 public partial class MainWindow : Window
 {
     private readonly SimpleAssembler _assembler = new();
+    // Separate assembler for live error checking while typing, so it never disturbs the assembled program.
+    private readonly SimpleAssembler _checker = new();
+    private readonly Avalonia.Threading.DispatcherTimer _checkTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private EditorDocument? _checkDocument;
+    // The document whose source produced _program; runtime and assemble errors point into it.
+    private EditorDocument? _assembledDocument;
     private readonly MipsMachine _machine = new();
     private AssemblyProgram? _program;
     private readonly List<EditorDocument> _documents = new();
@@ -110,6 +117,13 @@ main:
         ShowLineNumbersMenu.IsChecked = _settings.ShowLineNumbers;
         SyntaxHighlightingMenu.IsChecked = _settings.SyntaxHighlighting;
         CompileAllCSharpMenu.IsChecked = _settings.CompileAllCSharpFiles;
+        // App shortcuts are handled before the editor sees them, so e.g. F3 assembles instead of "find next".
+        AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
+        _checkTimer.Tick += (_, _) =>
+        {
+            _checkTimer.Stop();
+            if (_checkDocument is { } pending && _documents.Contains(pending)) RunLiveCheck(pending);
+        };
         // ConsoleText is replaced (never mutated) by the simulator, so reading it from the UI thread is safe.
         _runTimer.Tick += (_, _) => SetConsoleText(_machine.ConsoleText);
         foreach (var row in _registerRows)
@@ -239,8 +253,15 @@ main:
 
     private async void Open_Click(object? s, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Open source file", AllowMultiple = true, FileTypeFilter = new[] { new FilePickerFileType("Assembly files (*.asm, *.s)") { Patterns = new[] { "*.asm", "*.s" } }, new FilePickerFileType("C# files (*.cs)") { Patterns = new[] { "*.cs" } }, new FilePickerFileType("All ASMForge source files") { Patterns = new[] { "*.asm", "*.s", "*.cs" } }, FilePickerFileTypes.All } });
-        foreach (var f in files) OpenFilePath(f.Path.LocalPath);
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Open source file", AllowMultiple = true, FileTypeFilter = new[]
+        {
+            // The first filter is the dialog's default, so show every ASMForge source type first.
+            new FilePickerFileType("ASMForge source files (*.asm, *.s, *.cs)") { Patterns = new[] { "*.asm", "*.s", "*.cs" } },
+            new FilePickerFileType("Assembly files (*.asm, *.s)") { Patterns = new[] { "*.asm", "*.s" } },
+            new FilePickerFileType("C# files (*.cs)") { Patterns = new[] { "*.cs" } },
+            FilePickerFileTypes.All
+        } });
+        foreach (var f in files) Try(() => OpenFilePath(f.Path.LocalPath));
     }
     private async void OpenFolder_Click(object? s, RoutedEventArgs e)
     {
@@ -388,13 +409,21 @@ main:
 
         DiagnosticLog.Info($"Editor created: {name}; syntax={_settings.SyntaxHighlighting}; transformers={editor.TextArea.TextView.LineTransformers.Count}; theme={RequestedThemeVariant}");
 
-        var doc = new EditorDocument(path, name, editor, editorBorder, breakpoints, dirty);
+        // Red/yellow squiggles for errors and warnings, and the built-in Find/Replace panel.
+        var diagnostics = new DiagnosticRenderer(editor.TextArea.TextView);
+        editor.TextArea.TextView.BackgroundRenderers.Add(diagnostics);
+        var search = SearchPanel.Install(editor);
+
+        var doc = new EditorDocument(path, name, editor, editorBorder, breakpoints, diagnostics, search, dirty);
         editor.TextChanged += (_, _) =>
         {
             doc.Dirty = true;
             UpdateTabHeaders();
             _program = null;
+            ScheduleLiveCheck(doc); // .asm: the file itself; .cs: assembly strings passed to LoadAssembly
         };
+        editor.TextArea.Caret.PositionChanged += (_, _) => ShowDiagnosticAtCaret(doc);
+        editor.TextArea.TextView.PointerMoved += (_, e) => UpdateDiagnosticTip(doc, e);
 
         _documents.Add(doc);
         var tab = new TabItem
@@ -417,6 +446,7 @@ main:
         UpdateTabHeaders();
         editor.Focus();
         SaveSession();
+        ScheduleLiveCheck(doc);
         // Measure the new editor immediately so its line-number margin has a valid font size
         // even if a menu popup closing right after this forces a render (see ShowLineNumbers_Click).
         if (IsVisible) UpdateLayout();
@@ -541,6 +571,39 @@ main:
     }
     private void CloseAllDocuments() { _documents.Clear(); EditorTabs.Items.Clear(); }
     private void UpdateTabHeaders() { for (var i = 0; i < _documents.Count && i < EditorTabs.Items.Count; i++) if (EditorTabs.Items[i] is TabItem t) t.Header = _documents[i].Name + (_documents[i].Dirty ? " *" : ""); UpdateTitle(); }
+    private static readonly HashSet<string> SkippedFolders = new(StringComparer.OrdinalIgnoreCase) { "bin", "obj", ".git", ".vs", "node_modules" };
+
+    /// <summary>
+    /// Files under a project folder, skipping build output, version control and hidden folders. Folders that
+    /// cannot be read (deleted, no permission) are skipped instead of failing the whole scan.
+    /// </summary>
+    private static IEnumerable<string> EnumerateProjectFiles(string root, string pattern)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var folder = pending.Pop();
+            string[] files, folders;
+            try
+            {
+                files = Directory.GetFiles(folder, pattern);
+                folders = Directory.GetDirectories(folder);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DiagnosticLog.Warn($"Skipping unreadable folder {folder}: {ex.Message}");
+                continue;
+            }
+            foreach (var file in files) yield return file;
+            foreach (var sub in folders)
+            {
+                var name = Path.GetFileName(sub);
+                if (!SkippedFolders.Contains(name) && !name.StartsWith('.')) pending.Push(sub);
+            }
+        }
+    }
+
     private void RefreshExplorer()
     {
         if (ExplorerList is null || ProjectNameText is null)
@@ -550,7 +613,7 @@ main:
         if (_projectFolder is not null && Directory.Exists(_projectFolder))
         {
             ProjectNameText.Text = GetProjectDisplayName(_projectFolder);
-            foreach (var file in Directory.EnumerateFiles(_projectFolder, "*", SearchOption.AllDirectories)
+            foreach (var file in EnumerateProjectFiles(_projectFolder, "*")
                          .Where(p => p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase) ||
                                      p.EndsWith(".s", StringComparison.OrdinalIgnoreCase) ||
                                      p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
@@ -592,7 +655,7 @@ main:
         return Path.GetFileName(folder);
     }
 
-    private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
+    private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) Try(() => OpenFilePath(path)); else RefreshExplorer(); }
     private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; SaveSession(); UpdateTitle(); Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e)
     {
@@ -641,7 +704,9 @@ main:
             throw new InvalidOperationException("C# host code is not compiled by the ASM editor. The generated template now uses the public ASMForgeRuntime API; run it from a .NET project that references ASMForge.Core.");
 
         var source = editor.Text ?? string.Empty;
+        _assembledDocument = ActiveDocument;
         _program = _assembler.Assemble(source);
+        if (_assembledDocument is not null) RunLiveCheck(_assembledDocument);
         _machine.Load(_program); // also clears Step Back history
 
         var warnings = GetAssemblyWarnings(source);
@@ -1090,6 +1155,7 @@ main:
             var result = await CSharpRunner.CompileAndRunAsync(sources, ActiveDocument?.Path);
             Console.Text = result.Output;
             Messages.Text = result.Diagnostics;
+            ApplyCSharpDiagnostics(result.Diagnostics);
             if (result.Success)
             {
                 Status.Text = "C# finished";
@@ -1118,8 +1184,7 @@ main:
         // file's Main is used as the entry point. A loose C# file always compiles by itself.
         if (_settings.CompileAllCSharpFiles && activeIsProjectMember && _projectFolder is not null && Directory.Exists(_projectFolder))
         {
-            foreach (var path in Directory.EnumerateFiles(_projectFolder, "*.cs", SearchOption.AllDirectories)
-                         .Where(p => !IsBuildOutputPath(p)))
+            foreach (var path in EnumerateProjectFiles(_projectFolder, "*.cs"))
             {
                 sources[path] = File.ReadAllText(path);
             }
@@ -1147,11 +1212,6 @@ main:
         return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsBuildOutputPath(string path)
-    {
-        var parts = Path.GetFullPath(path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return parts.Any(p => p.Equals("bin", StringComparison.OrdinalIgnoreCase) || p.Equals("obj", StringComparison.OrdinalIgnoreCase));
-    }
 
     private void RegisterFormat_SelectionChanged(object? s, SelectionChangedEventArgs e)
     {
@@ -1180,7 +1240,41 @@ main:
             d.Editor.TextArea.TextView.Redraw();
         }
     }
-    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.B) { ToggleBreakpoint_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.F5) { Stop_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F6) { Pause_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F9) { Back_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.F10) { RunToCursor_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
+    // Registered as a tunnel handler, so these run before the focused control (e.g. the editor) handles the key.
+    private void Window_KeyDown(object? s, KeyEventArgs e)
+    {
+        var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+        var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        var alt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+        var inEditor = ActiveEditor?.TextArea.IsKeyboardFocusWithin == true;
+        var a = new RoutedEventArgs();
+        Action? action = null;
+
+        if (ctrl && e.Key == Key.N) action = () => New_Click(s, a);
+        else if (ctrl && e.Key == Key.O) action = shift ? () => OpenFolder_Click(s, a) : () => Open_Click(s, a);
+        else if (ctrl && e.Key == Key.S) action = shift ? () => SaveAs_Click(s, a) : () => Save_Click(s, a);
+        else if (ctrl && e.Key == Key.W) action = () => CloseFile_Click(s, a);
+        else if (ctrl && e.Key == Key.F) action = () => Find_Click(s, a);
+        else if (ctrl && e.Key == Key.H) action = () => Replace_Click(s, a);
+        else if (ctrl && e.Key == Key.G) action = () => GoToLine_Click(s, a);
+        else if (ctrl && e.Key == Key.R) action = () => GoToLabel_Click(s, a);
+        else if (ctrl && e.Key == Key.B) action = () => ToggleBreakpoint_Click(s, a);
+        else if (inEditor && ctrl && e.Key is Key.OemQuestion or Key.Divide) action = () => ToggleComment_Click(s, a);
+        else if (inEditor && ctrl && e.Key == Key.D) action = () => DuplicateLine_Click(s, a);
+        else if (inEditor && alt && e.Key == Key.Up) action = () => MoveLineUp_Click(s, a);
+        else if (inEditor && alt && e.Key == Key.Down) action = () => MoveLineDown_Click(s, a);
+        else if (e.Key == Key.F3) action = () => Assemble_Click(s, a);
+        else if (shift && e.Key == Key.F5) action = () => Stop_Click(s, a);
+        else if (e.Key == Key.F5) action = () => Run_Click(s, a);
+        else if (e.Key == Key.F6) action = () => Pause_Click(s, a);
+        else if (e.Key == Key.F9) action = () => Back_Click(s, a);
+        else if (ctrl && e.Key == Key.F10) action = () => RunToCursor_Click(s, a);
+        else if (e.Key == Key.F10) action = () => Step_Click(s, a);
+
+        if (action is null) return;
+        e.Handled = true;
+        action();
+    }
     private async void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
     {
         // Unsaved work: cancel this close, ask, and close again only if the user agrees.
@@ -1222,7 +1316,313 @@ main:
     }
 
     private void Try(Action a) { try { a(); } catch (Exception ex) { ShowError(ex); } }
-    private void ShowError(Exception ex) { DiagnosticLog.Error("UI operation failed", ex); Status.Text = "Error"; Messages.Text = ex.Message; OutputTabs.SelectedIndex = 0; RefreshDisplay(); }
+    private void ShowError(Exception ex)
+    {
+        DiagnosticLog.Error("UI operation failed", ex);
+        Status.Text = "Error";
+        Messages.Text = ex.Message;
+        OutputTabs.SelectedIndex = 0;
+        MarkErrorLine(ex.Message);
+        RefreshDisplay();
+    }
+
+    // ---- Diagnostics: live squiggles, hover/caret messages, Messages navigation ----
+
+    private static bool IsAssemblyDocument(EditorDocument doc) => !doc.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+
+    private void ScheduleLiveCheck(EditorDocument doc)
+    {
+        _checkDocument = doc;
+        _checkTimer.Stop();
+        _checkTimer.Start();
+    }
+
+    // Assembles the document's text in check-only mode and squiggles every error and warning.
+    // For C# files, the assembly inside strings passed to LoadAssembly is checked instead.
+    private void RunLiveCheck(EditorDocument doc)
+    {
+        try
+        {
+            var source = doc.Editor.Text ?? string.Empty;
+            if (!IsAssemblyDocument(doc))
+            {
+                doc.Diagnostics.Set(EmbeddedAssemblyChecker.Check(source, _checker, GetAssemblyWarnings));
+                if (doc == ActiveDocument) ShowDiagnosticAtCaret(doc);
+                return;
+            }
+            var diagnostics = _checker.CheckAll(source)
+                .Where(e => e.Line > 0)
+                .Select(e => new EditorDiagnostic(e.Line, null, e.Message, EditorDiagnosticSeverity.Error))
+                .ToList();
+            diagnostics.AddRange(GetAssemblyWarnings(source)
+                .Select(w => DiagnosticRenderer.FromAssemblyMessage(w, EditorDiagnosticSeverity.Warning))
+                .OfType<EditorDiagnostic>());
+            doc.Diagnostics.Set(diagnostics);
+            if (doc == ActiveDocument) ShowDiagnosticAtCaret(doc);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLog.Error("Live error check failed", ex);
+        }
+    }
+
+    // After an assemble or runtime error ("Line N: ..."), squiggle the offending line in the assembled document.
+    private void MarkErrorLine(string message)
+    {
+        var doc = _assembledDocument ?? ActiveDocument;
+        if (doc is null || !_documents.Contains(doc) || !IsAssemblyDocument(doc)) return;
+        if (DiagnosticRenderer.FromAssemblyMessage(message) is not { } error) return;
+
+        RunLiveCheck(doc); // assemble errors: shows every bad line, not just the first
+        if (doc.Diagnostics.At(error.Line)?.Severity != EditorDiagnosticSeverity.Error)
+            doc.Diagnostics.Set(doc.Diagnostics.Diagnostics.Append(error).ToList()); // runtime error on a valid line
+        Status.Text = $"Error on line {error.Line} (double-click it in Messages to jump there)";
+    }
+
+    private void ApplyCSharpDiagnostics(string diagnosticsText)
+    {
+        var byFile = DiagnosticRenderer.FromCSharpDiagnostics(diagnosticsText)
+            .GroupBy(d => d.File, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(d => d.Diagnostic).ToList(), StringComparer.OrdinalIgnoreCase);
+        foreach (var doc in _documents.Where(d => !IsAssemblyDocument(d)))
+        {
+            // Compiler errors from this run, plus the live check of assembly embedded in the file's strings.
+            var list = byFile.TryGetValue(doc.Name, out var compiler) ? compiler : new List<EditorDiagnostic>();
+            list.AddRange(EmbeddedAssemblyChecker.Check(doc.Editor.Text ?? string.Empty, _checker, GetAssemblyWarnings));
+            doc.Diagnostics.Set(list);
+        }
+    }
+
+    private void ShowDiagnosticAtCaret(EditorDocument doc)
+    {
+        if (doc != ActiveDocument) return;
+        if (doc.Diagnostics.At(doc.Editor.TextArea.Caret.Line) is { } diagnostic)
+            Status.Text = $"{diagnostic.Severity} on line {diagnostic.Line}: {FirstLine(diagnostic.Message)}";
+    }
+
+    private static void UpdateDiagnosticTip(EditorDocument doc, PointerEventArgs e)
+    {
+        var view = doc.Editor.TextArea.TextView;
+        if (!view.VisualLinesValid) return;
+        var visualLine = view.GetVisualLineFromVisualTop(e.GetPosition(view).Y + view.VerticalOffset);
+        var diagnostic = visualLine is null ? null : doc.Diagnostics.At(visualLine.FirstDocumentLine.LineNumber);
+        var tip = diagnostic is null ? null : $"{diagnostic.Severity}: {diagnostic.Message}";
+        if (!Equals(ToolTip.GetTip(view), tip)) ToolTip.SetTip(view, tip);
+    }
+
+    private static string FirstLine(string text)
+    {
+        var newline = text.IndexOf('\n');
+        return newline < 0 ? text : text[..newline].TrimEnd();
+    }
+
+    private static readonly Regex AsmLocation = new(@"\bLine (\d+)\b", RegexOptions.Compiled);
+    private static readonly Regex CSharpLocation = new(@"^(?<file>[^()\r\n]+)\((?<line>\d+),(?<col>\d+)\)", RegexOptions.Compiled);
+    private static readonly Regex StackTraceLocation = new(@" in (?<path>.+):line (?<line>\d+)", RegexOptions.Compiled);
+
+    // Double-clicking a message jumps to its location; a line without one falls back to the first location in Messages.
+    private void Messages_DoubleTapped(object? s, TappedEventArgs e)
+    {
+        var text = Messages.Text ?? string.Empty;
+        var caret = Math.Clamp(Messages.CaretIndex, 0, text.Length);
+        var start = caret == 0 ? 0 : text.LastIndexOf('\n', caret - 1) + 1;
+        var end = text.IndexOf('\n', caret);
+        var line = text[start..(end < 0 ? text.Length : end)].Trim();
+        if (TryNavigateToMessage(line) || TryNavigateToMessage(text)) e.Handled = true;
+    }
+
+    private bool TryNavigateToMessage(string message)
+    {
+        if (CSharpLocation.Match(message) is { Success: true } cs && FindOrOpenDocument(cs.Groups["file"].Value.Trim()) is { } csDoc)
+            return GoToLocation(csDoc, int.Parse(cs.Groups["line"].Value), int.Parse(cs.Groups["col"].Value));
+        if (StackTraceLocation.Match(message) is { Success: true } trace && FindOrOpenDocument(Path.GetFileName(trace.Groups["path"].Value)) is { } traceDoc)
+            return GoToLocation(traceDoc, int.Parse(trace.Groups["line"].Value), 1);
+        if (AsmLocation.Match(message) is { Success: true } asm && (_assembledDocument ?? ActiveDocument) is { } asmDoc && _documents.Contains(asmDoc))
+            return GoToLocation(asmDoc, int.Parse(asm.Groups[1].Value), 1);
+        return false;
+    }
+
+    private EditorDocument? FindOrOpenDocument(string fileName)
+    {
+        var open = _documents.FirstOrDefault(d => string.Equals(d.Name, fileName, StringComparison.OrdinalIgnoreCase));
+        if (open is not null || _projectFolder is null || !Directory.Exists(_projectFolder)) return open;
+        var path = EnumerateProjectFiles(_projectFolder, fileName).FirstOrDefault();
+        if (path is null) return null;
+        OpenFilePath(path);
+        return _documents.FirstOrDefault(d => string.Equals(d.Path, path, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool GoToLocation(EditorDocument doc, int line, int column)
+    {
+        var index = _documents.IndexOf(doc);
+        if (index < 0) return false;
+        WorkspaceTabs.SelectedIndex = 0;
+        EditorTabs.SelectedIndex = index;
+        var editor = doc.Editor;
+        var document = editor.Document;
+        line = Math.Clamp(line, 1, document.LineCount);
+        var docLine = document.GetLineByNumber(line);
+        editor.CaretOffset = docLine.Offset + Math.Clamp(column - 1, 0, docLine.Length);
+        editor.TextArea.ClearSelection();
+        editor.ScrollToLine(line);
+        editor.Focus();
+        return true;
+    }
+
+    // ---- Edit menu ----
+
+    private void Undo_Click(object? s, RoutedEventArgs e) => ActiveEditor?.Undo();
+    private void Redo_Click(object? s, RoutedEventArgs e) => ActiveEditor?.Redo();
+    private void Cut_Click(object? s, RoutedEventArgs e) => ActiveEditor?.Cut();
+    private void Copy_Click(object? s, RoutedEventArgs e) => ActiveEditor?.Copy();
+    private void Paste_Click(object? s, RoutedEventArgs e) => ActiveEditor?.Paste();
+    private void SelectAll_Click(object? s, RoutedEventArgs e) => ActiveEditor?.SelectAll();
+    private void Find_Click(object? s, RoutedEventArgs e) => OpenSearch(replace: false);
+    private void Replace_Click(object? s, RoutedEventArgs e) => OpenSearch(replace: true);
+
+    private void OpenSearch(bool replace)
+    {
+        var doc = ActiveDocument;
+        if (doc is null) return;
+        WorkspaceTabs.SelectedIndex = 0;
+        var selected = doc.Editor.SelectedText;
+        if (!string.IsNullOrEmpty(selected) && !selected.Contains('\n')) doc.Search.SearchPattern = selected;
+        doc.Search.IsReplaceMode = replace;
+        doc.Search.Open();
+    }
+
+    private async void GoToLine_Click(object? s, RoutedEventArgs e)
+    {
+        var doc = ActiveDocument;
+        if (doc is null) return;
+        var line = await GoToLineDialog.ShowAsync(this, doc.Editor.TextArea.Caret.Line, doc.Editor.Document.LineCount);
+        if (line is { } target) GoToLocation(doc, target, 1);
+    }
+
+    private static readonly Regex LabelDefinition = new(@"^\s*([A-Za-z_.][A-Za-z0-9_.$]*)\s*:", RegexOptions.Compiled);
+
+    private async void GoToLabel_Click(object? s, RoutedEventArgs e)
+    {
+        var doc = ActiveDocument;
+        if (doc is null) return;
+        if (!IsAssemblyDocument(doc)) { Status.Text = "Go to Label works in assembly files"; return; }
+        var labels = doc.Editor.Document.Lines
+            .Select(l => (Match: LabelDefinition.Match(doc.Editor.Document.GetText(l)), l.LineNumber))
+            .Where(x => x.Match.Success)
+            .Select(x => (x.Match.Groups[1].Value, x.LineNumber))
+            .ToList();
+        if (labels.Count == 0) { Status.Text = "No labels in this file"; return; }
+        var line = await GoToLabelDialog.ShowAsync(this, labels);
+        if (line is { } target) GoToLocation(doc, target, 1);
+    }
+
+    // The lines covered by the selection, or the caret line when nothing is selected.
+    private static (DocumentLine First, DocumentLine Last) SelectedLines(TextEditor editor)
+    {
+        var document = editor.Document;
+        if (editor.SelectionLength == 0)
+        {
+            var line = document.GetLineByOffset(editor.CaretOffset);
+            return (line, line);
+        }
+        var first = document.GetLineByOffset(editor.SelectionStart);
+        var endOffset = editor.SelectionStart + editor.SelectionLength;
+        var last = document.GetLineByOffset(endOffset);
+        // A selection ending at the very start of a line does not include that line.
+        if (last.LineNumber > first.LineNumber && endOffset == last.Offset) last = last.PreviousLine;
+        return (first, last);
+    }
+
+    private static string DelimiterOf(TextDocument document, DocumentLine line) =>
+        line.DelimiterLength > 0 ? document.GetText(line.EndOffset, line.DelimiterLength)
+        : line.PreviousLine is { DelimiterLength: > 0 } previous ? document.GetText(previous.EndOffset, previous.DelimiterLength)
+        : "\n";
+
+    private void ToggleComment_Click(object? s, RoutedEventArgs e)
+    {
+        var doc = ActiveDocument;
+        if (doc is null) return;
+        var editor = doc.Editor;
+        var document = editor.Document;
+        var token = IsAssemblyDocument(doc) ? "#" : "//";
+        var (first, last) = SelectedLines(editor);
+        var lines = Enumerable.Range(first.LineNumber, last.LineNumber - first.LineNumber + 1).Select(document.GetLineByNumber).ToList();
+        var nonBlank = lines.Where(l => document.GetText(l).Trim().Length > 0).ToList();
+        if (nonBlank.Count == 0) return;
+        var uncomment = nonBlank.All(l => document.GetText(l).TrimStart().StartsWith(token, StringComparison.Ordinal));
+        var indent = nonBlank.Min(l => document.GetText(l).Length - document.GetText(l).TrimStart().Length);
+
+        document.BeginUpdate();
+        try
+        {
+            // Work bottom-up so earlier offsets stay valid.
+            foreach (var line in nonBlank.AsEnumerable().Reverse())
+            {
+                var text = document.GetText(line);
+                if (uncomment)
+                {
+                    var at = text.IndexOf(token, StringComparison.Ordinal);
+                    var length = token.Length + (at + token.Length < text.Length && text[at + token.Length] == ' ' ? 1 : 0);
+                    document.Remove(line.Offset + at, length);
+                }
+                else
+                {
+                    document.Insert(line.Offset + indent, token + " ");
+                }
+            }
+        }
+        finally { document.EndUpdate(); }
+    }
+
+    private void DuplicateLine_Click(object? s, RoutedEventArgs e)
+    {
+        var editor = ActiveEditor;
+        if (editor is null) return;
+        var document = editor.Document;
+        if (editor.SelectionLength > 0)
+        {
+            var end = editor.SelectionStart + editor.SelectionLength;
+            document.Insert(end, editor.SelectedText);
+            return;
+        }
+        var line = document.GetLineByOffset(editor.CaretOffset);
+        var column = editor.CaretOffset - line.Offset;
+        document.Insert(line.EndOffset, DelimiterOf(document, line) + document.GetText(line));
+        var copy = line.NextLine!;
+        editor.CaretOffset = copy.Offset + Math.Min(column, copy.Length);
+    }
+
+    private void MoveLineUp_Click(object? s, RoutedEventArgs e) => MoveLines(up: true);
+    private void MoveLineDown_Click(object? s, RoutedEventArgs e) => MoveLines(up: false);
+
+    // Swaps the selected lines (or the caret line) with the line above or below, keeping them selected.
+    private void MoveLines(bool up)
+    {
+        var editor = ActiveEditor;
+        if (editor is null) return;
+        var document = editor.Document;
+        var (first, last) = SelectedLines(editor);
+        var block = document.GetText(first.Offset, last.EndOffset - first.Offset);
+        if (up)
+        {
+            var previous = first.PreviousLine;
+            if (previous is null) return;
+            var delimiter = DelimiterOf(document, previous);
+            var start = previous.Offset;
+            document.Replace(start, last.EndOffset - start, block + delimiter + document.GetText(previous));
+            editor.Select(start, block.Length);
+        }
+        else
+        {
+            var next = last.NextLine;
+            if (next is null) return;
+            var delimiter = DelimiterOf(document, last);
+            var nextText = document.GetText(next);
+            var start = first.Offset;
+            document.Replace(start, next.EndOffset - start, nextText + delimiter + block);
+            editor.Select(start + nextText.Length + delimiter.Length, block.Length);
+        }
+    }
     private void RefreshDisplay()
     {
         // While running, the simulator is owned by the background thread; refresh when it stops.
@@ -1515,15 +1915,20 @@ main:
         public TextEditor Editor;
         public Border EditorBorder;
         public BreakpointMargin Breakpoints;
+        public DiagnosticRenderer Diagnostics;
+        public SearchPanel Search;
         public bool Dirty;
 
-        public EditorDocument(string? path, string name, TextEditor editor, Border editorBorder, BreakpointMargin breakpoints, bool dirty)
+        public EditorDocument(string? path, string name, TextEditor editor, Border editorBorder, BreakpointMargin breakpoints,
+            DiagnosticRenderer diagnostics, SearchPanel search, bool dirty)
         {
             Path = path;
             Name = name;
             Editor = editor;
             EditorBorder = editorBorder;
             Breakpoints = breakpoints;
+            Diagnostics = diagnostics;
+            Search = search;
             Dirty = dirty;
         }
     }

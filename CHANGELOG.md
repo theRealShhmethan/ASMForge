@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.12.0
+- **Live error checking**: about half a second after you stop typing in an assembly file, every line with an
+  error gets a red squiggle (unknown instructions, wrong operands, out-of-range values, undefined labels,
+  code in the wrong section); numeric registers like `$8` get a yellow warning. Hover the line or put the caret
+  on it to see the message. Assemble/runtime errors and C# compiler errors are squiggled too.
+- `SimpleAssembler.CheckAll` reports every error in a file (not just the first) without cascading errors.
+- A directive written without its dot (`text`, `data`, `word`, …) is reported as "unknown instruction 'text'.
+  Did you mean '.text'?" instead of a misleading wrong-section error, and does not cascade onto later lines.
+- **Assembly inside C# is checked too**: string literals passed to `LoadAssembly(...)` (directly or through a
+  const/variable) get the same live red/yellow squiggles, on the exact line inside `"""` raw and `@"…"` verbatim
+  strings. Messages are prefixed with "Assembly:" to tell them apart from C# compiler errors.
+- **Double-click a message** in Messages to jump to its file, line and column (assembly, C# compiler errors,
+  and C# exception stack traces).
+- **Edit menu**: Undo, Redo, Cut, Copy, Paste, Select All, Find (Ctrl+F), Replace (Ctrl+H), Go to Line (Ctrl+G),
+  Go to Label (Ctrl+R), Toggle Comment (Ctrl+/), Duplicate Line (Ctrl+D), Move Line Up/Down (Alt+Up/Down).
+- App shortcuts now run before the editor, so F3 always assembles (the search panel uses Enter for Find Next).
+- **Stability**: unexpected errors no longer close the app. An error dialog explains what happened, keeps
+  ASMForge running so you can save, and offers Copy Details and Open Log Folder. A rapid burst of errors still exits.
+- Opening an unreadable or vanished file shows an error instead of crashing; project scans skip `bin`, `obj`,
+  `.git`, hidden and unreadable folders (faster Explorer on large projects).
+- 16 new instruction-semantics regression tests (113 total); Release and Windows x64 builds verified.
+
 ## v0.11.0
 - **Console input**: syscalls 5 (read integer), 8 (read string, `fgets` semantics like MARS) and 12 (read character).
   The program pauses and Run I/O enables an input box; Enter sends the line and execution resumes the way it was

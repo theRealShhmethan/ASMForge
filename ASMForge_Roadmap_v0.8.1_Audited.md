@@ -1,6 +1,6 @@
 # ASMForge — Full Development Roadmap
 
-> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.11.0** on 2026-10-01 (see CHANGELOG.md).  
+> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.12.0** on 2026-10-01 (see CHANGELOG.md).  
 > `[x]` means the feature is directly present in the source; `[~]` means it exists in partial form but does not yet satisfy the full roadmap item.  
 > `[T]` marks items implemented but not yet confirmed; they become `[x]` after a confirmation pass.
 
@@ -113,7 +113,7 @@ Use these markers while working through the roadmap:
 - [~] In progress
 - [x] Complete
 - [!] Blocked / bug found
-- [x] Needs testing
+- [T] Needs testing
 - [D] Needs documentation
 - [S] Stretch goal
 
@@ -127,69 +127,73 @@ Make the features that already exist dependable before expanding the application
 
 ## 1.1 Build Stability
 
-- [ ] Ensure the full solution builds cleanly in Visual Studio
-- [ ] Ensure the full solution builds using `dotnet build`
-- [~] Remove all compiler warnings that indicate real issues
-- [ ] Verify Debug configuration
-- [ ] Verify Release configuration
-- [ ] Verify Windows x64 build
-- [ ] Verify portable build if supported
-- [ ] Verify application launches with no missing dependencies
+- [x] Ensure the full solution builds cleanly in Visual Studio
+- [x] Ensure the full solution builds using `dotnet build` *(0 errors, 0 warnings)*
+- [x] Remove all compiler warnings that indicate real issues
+- [x] Verify Debug configuration
+- [x] Verify Release configuration
+- [x] Verify Windows x64 build *(`-r win-x64`, framework-dependent)*
+- [ ] Verify portable build if supported *(see Phase 40)*
+- [x] Verify application launches with no missing dependencies
 - [x] Add a version string visible in the application
 - [x] Add About dialog showing version/build information
 
 ## 1.2 Crash Prevention
 
-- [ ] Audit all UI actions for uncaught exceptions
-- [ ] Prevent crashes when closing tabs
-- [ ] Prevent crashes when opening malformed files
-- [ ] Prevent crashes when the active editor has no document
+- [T] Audit all UI actions for uncaught exceptions *(plus a top-level handler as a safety net)*
+- [x] Prevent crashes when closing tabs
+- [T] Prevent crashes when opening malformed files
+- [x] Prevent crashes when the active editor has no document
 - [x] Prevent crashes when simulator is reset mid-run *(Reset/Step/Assemble blocked while running)*
-- [ ] Prevent crashes when memory viewer is on an invalid address
-- [ ] Prevent crashes when register values are edited
-- [ ] Prevent crashes when project paths no longer exist
-- [ ] Prevent crashes when files are renamed externally
-- [ ] Add a top-level exception handler
-- [ ] Add user-friendly error dialogs
+- [x] Prevent crashes when memory viewer is on an invalid address
+- [x] Prevent crashes when register values are edited
+- [T] Prevent crashes when project paths no longer exist *(unreadable/deleted folders are skipped)*
+- [T] Prevent crashes when files are renamed externally
+- [T] Add a top-level exception handler
+- [T] Add user-friendly error dialogs
 
 ## 1.3 Automated Regression Tests
 
 Create automated tests for:
 
-- [ ] arithmetic instructions
-- [ ] signed arithmetic
-- [ ] unsigned arithmetic
-- [ ] multiplication
-- [ ] division
-- [ ] HI / LO
-- [ ] shifts
-- [ ] comparisons
-- [ ] jumps
-- [ ] branches
-- [ ] register zero behavior
-- [ ] sign extension
-- [ ] zero extension
-- [ ] word loads
-- [ ] halfword loads
-- [ ] byte loads
-- [ ] stores
-- [ ] alignment errors
-- [ ] labels
-- [ ] data directives
-- [ ] auto alignment
-- [ ] strings
-- [ ] heap allocation
-- [ ] stack behavior
-- [ ] syscall output
+- [x] arithmetic instructions
+- [x] signed arithmetic
+- [x] unsigned arithmetic
+- [x] multiplication
+- [x] division
+- [x] HI / LO
+- [x] shifts
+- [x] comparisons
+- [x] jumps
+- [x] branches
+- [x] register zero behavior
+- [x] sign extension
+- [x] zero extension
+- [x] word loads
+- [x] halfword loads
+- [x] byte loads
+- [x] stores
+- [x] alignment errors
+- [x] labels
+- [x] data directives
+- [x] auto alignment
+- [x] strings
+- [x] heap allocation
+- [x] stack behavior
+- [x] syscall output
 - [x] pseudo-instruction expansion
-- [ ] reset behavior
-- [ ] step behavior
+- [x] reset behavior
+- [x] step behavior
 - [x] backstep behavior
-- [ ] C# runtime bridge
+- [x] C# runtime bridge
 
 ## 1.4 Test Suite Organization
 
-Create:
+- [x] Tests split by area. Actual layout: `InstructionTests` (arithmetic, shifts, comparisons, loads/stores, stack, heap),
+      `PseudoInstructionTests`, `MachineCodeTests`, `SyscallTests` (input, random, time, edits), `BackstepTests`,
+      `DebuggerTests`, `DiagnosticsTests`, `MachineTests` (directives, labels, C# runtime bridge).
+
+Originally suggested layout:
 
 ```text
 tests/
@@ -882,14 +886,14 @@ Make assembly editing feel like a modern IDE.
 - [x] line numbers
 - [x] current-line highlight
 - [ ] bracket matching
-- [ ] comment/uncomment shortcut
-- [ ] duplicate line
-- [ ] move line up/down
-- [ ] find
-- [ ] replace
+- [T] comment/uncomment shortcut
+- [T] duplicate line
+- [T] move line up/down
+- [T] find
+- [T] replace
 - [ ] find in files
-- [ ] go to line
-- [ ] go to label
+- [T] go to line
+- [T] go to label
 - [ ] code folding
 
 ## IntelliSense / Suggestions
@@ -904,11 +908,11 @@ Make assembly editing feel like a modern IDE.
 
 ## Error Visualization
 
-- [ ] red squiggles
-- [ ] warning squiggles
-- [ ] hover diagnostic
-- [ ] click error → line
-- [ ] Messages panel integration
+- [T] red squiggles *(live while typing; every bad line, not just the first)*
+- [T] warning squiggles
+- [T] hover diagnostic
+- [T] click error → line
+- [T] Messages panel integration
 
 ---
 
@@ -999,7 +1003,7 @@ Make C# integration a first-class ASMForge feature.
 - [~] warning levels
 - [x] choose entry point: active file's Main when compiling all project files
 - [x] setting: compile only the active file (default) or all project C# files
-- [ ] click diagnostic → file/line
+- [T] click diagnostic → file/line
 
 ## Runtime
 
@@ -1251,7 +1255,7 @@ Tasks:
 - [~] severity
 - [~] message
 - [~] code
-- [ ] jump-to-source
+- [T] jump-to-source
 - [ ] copy diagnostic
 
 ---
@@ -2043,6 +2047,31 @@ ASMForge could run automated checks without exposing answers.
 
 ---
 
+# Phase 47 — Pseudocode-to-MIPS Generator (Tools menu)
+
+## Goal
+
+A deterministic (non-AI) translator: write simple pseudocode in a defined syntax and generate readable,
+commented MIPS assembly that assembles and runs in ASMForge. Listed under **Tools > Pseudocode Generator**.
+
+## Design (to decide when this phase starts)
+
+- [ ] Define the pseudocode language (variables, integer arithmetic, assignment, if/else, while, for,
+      print / read, arrays, functions with parameters and return values)
+- [ ] Write a short language reference with examples
+- [ ] Decide register/stack allocation strategy (e.g. variables in `.data`, temporaries in `$t` registers)
+
+## Implementation
+
+- [ ] Tokenizer and parser with clear error messages (line/column)
+- [ ] Code generator producing commented MIPS (`# x = y + 1`) that maps back to pseudocode lines
+- [ ] Tools > Pseudocode Generator window: pseudocode editor, live preview of generated assembly
+- [ ] Open the result as a new `.asm` tab / insert into the current file
+- [ ] Generated code assembles cleanly and passes round-trip tests (generate, assemble, run, check output)
+- [ ] Example pseudocode programs
+
+---
+
 # Recommended Development Order
 
 The roadmap above is intentionally huge. A practical order from the current build is:
@@ -2090,7 +2119,7 @@ The roadmap above is intentionally huge. A practical order from the current buil
 
 # Suggested Version Plan
 
-> **Actual releases so far** (see CHANGELOG.md): v0.9 Step Back, change highlighting, session restore; v0.10 Debugger 1.0 (breakpoints, background Run, Pause/Stop); v0.10.1 MARS-accurate pseudo-instructions, machine code, About dialog, unsaved-changes prompts; v0.11.0 console input syscalls and register/memory editing with right-click menus. The plan below is the original suggestion; remaining milestones shift accordingly.
+> **Actual releases so far** (see CHANGELOG.md): v0.9 Step Back, change highlighting, session restore; v0.10 Debugger 1.0 (breakpoints, background Run, Pause/Stop); v0.10.1 MARS-accurate pseudo-instructions, machine code, About dialog, unsaved-changes prompts; v0.11.0 console input syscalls and register/memory editing with right-click menus; v0.12.0 live error squiggles (including assembly inside C# strings), Edit menu (Find/Replace, Go to Line/Label, line editing), Messages navigation, and stability (error dialog, regression tests). The plan below is the original suggestion; remaining milestones shift accordingly.
 
 ## v0.9
 

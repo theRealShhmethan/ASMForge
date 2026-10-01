@@ -23,8 +23,62 @@ public sealed class SimpleAssembler
         ".byte", ".half", ".word", ".float", ".double", ".ascii", ".asciiz", ".space"
     };
 
+    // Every directive the assembler recognizes (used to suggest a missing leading dot).
+    private static readonly HashSet<string> KnownDirectives = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".text", ".data", ".ktext", ".kdata", ".globl", ".global", ".extern", ".set", ".eqv", ".align",
+        ".byte", ".half", ".word", ".float", ".double", ".ascii", ".asciiz", ".space", ".include", ".macro", ".end_macro"
+    };
+
     private static readonly Regex RegisterToken = new(@"\$[A-Za-z0-9]+", RegexOptions.Compiled);
     private readonly Dictionary<string, long> _equates = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Regex ErrorLinePrefix = new(@"^Line (\d+):\s*", RegexOptions.Compiled);
+    private static readonly Regex MissingDotSuggestion = new(@"Did you mean '(\.[a-z_]+)'\? Directives start with a dot\.", RegexOptions.Compiled);
+    private static readonly Regex LeadingLabels = new(@"^\s*(?:[A-Za-z_.][A-Za-z0-9_.$]*\s*:\s*)*", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Finds every line with an assembly error, not just the first: each failing line is recorded,
+    /// reduced to its labels (so references to them still resolve), and the source is re-checked.
+    /// Line 0 means an error that is not tied to a source line.
+    /// </summary>
+    public IReadOnlyList<AssemblyError> CheckAll(string source, int maxErrors = 25)
+    {
+        var errors = new List<AssemblyError>();
+        var lines = (source ?? string.Empty).Replace("\r", string.Empty).Split('\n');
+        for (var attempt = 0; attempt <= maxErrors * 2 && errors.Count < maxErrors; attempt++)
+        {
+            try
+            {
+                Assemble(string.Join("\n", lines));
+                return errors.OrderBy(e => e.Line).ToList();
+            }
+            catch (Exception e) when (e is InvalidOperationException or NotSupportedException or FormatException or OverflowException)
+            {
+                var match = ErrorLinePrefix.Match(e.Message);
+                if (!match.Success || !int.TryParse(match.Groups[1].Value, out var line) || line < 1 || line > lines.Length)
+                {
+                    errors.Add(new AssemblyError(0, e.Message));
+                    return errors.OrderBy(e => e.Line).ToList();
+                }
+                if (errors.Any(x => x.Line == line))
+                {
+                    lines[line - 1] = string.Empty; // still failing with only its labels left: drop the line entirely
+                    continue;
+                }
+                errors.Add(new AssemblyError(line, e.Message[match.Length..]));
+                // Keep the line's labels so later references still resolve, unless the label itself is the
+                // problem (a duplicate would otherwise move to the next line and be reported again).
+                // A directive missing its dot ("text") is checked as the suggested directive, so the lines
+                // after it are not reported as being in the wrong section.
+                var directive = MissingDotSuggestion.Match(e.Message);
+                lines[line - 1] = e.Message.Contains("is already defined", StringComparison.Ordinal)
+                    ? string.Empty
+                    : LeadingLabels.Match(lines[line - 1]).Value + (directive.Success ? directive.Groups[1].Value : string.Empty);
+            }
+        }
+        return errors.OrderBy(e => e.Line).ToList();
+    }
 
     public AssemblyProgram Assemble(string source)
     {
@@ -180,14 +234,16 @@ public sealed class SimpleAssembler
                 continue;
             }
             if (line.Op is null) continue;
-            if (line.Section == Section.Data)
-                Error(line, $"instruction '{line.Op}' appears in the .data section. Add .text before it.");
+            // Unknown names are reported first: "text" (a directive missing its dot) is not an instruction in the wrong section.
             if (!InstructionSet.IsKnown(line.Op))
             {
-                var suggestion = FindClosestOperation(line.Op);
-                var hint = suggestion is null ? string.Empty : $"\nDid you mean '{suggestion}'?";
+                var hint = KnownDirectives.Contains("." + line.Op)
+                    ? $"\nDid you mean '.{line.Op}'? Directives start with a dot."
+                    : FindClosestOperation(line.Op) is { } suggestion ? $"\nDid you mean '{suggestion}'?" : string.Empty;
                 Error(line, $"unknown instruction '{line.Op}'.{hint}");
             }
+            if (line.Section == Section.Data)
+                Error(line, $"instruction '{line.Op}' appears in the .data section. Add .text before it.");
 
             foreach (var arg in line.Args)
             {

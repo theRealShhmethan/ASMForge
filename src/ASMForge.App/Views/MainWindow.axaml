@@ -6,7 +6,6 @@
         Height="900"
         MinWidth="1080"
         MinHeight="700"
-        KeyDown="Window_KeyDown"
         Closing="MainWindow_Closing">
 
   <Window.Resources>
@@ -42,7 +41,25 @@
         <MenuItem Header="_Close File" InputGesture="Ctrl+W" Click="CloseFile_Click"/>
       </MenuItem>
 
-      <MenuItem Header="_Edit"/>
+      <MenuItem Header="_Edit">
+        <MenuItem Header="_Undo" InputGesture="Ctrl+Z" Click="Undo_Click"/>
+        <MenuItem Header="_Redo" InputGesture="Ctrl+Y" Click="Redo_Click"/>
+        <Separator/>
+        <MenuItem Header="Cu_t" InputGesture="Ctrl+X" Click="Cut_Click"/>
+        <MenuItem Header="_Copy" InputGesture="Ctrl+C" Click="Copy_Click"/>
+        <MenuItem Header="_Paste" InputGesture="Ctrl+V" Click="Paste_Click"/>
+        <MenuItem Header="Select _All" InputGesture="Ctrl+A" Click="SelectAll_Click"/>
+        <Separator/>
+        <MenuItem Header="_Find..." InputGesture="Ctrl+F" Click="Find_Click"/>
+        <MenuItem Header="R_eplace..." InputGesture="Ctrl+H" Click="Replace_Click"/>
+        <MenuItem Header="_Go to Line..." InputGesture="Ctrl+G" Click="GoToLine_Click"/>
+        <MenuItem Header="Go to _Label..." InputGesture="Ctrl+R" Click="GoToLabel_Click"/>
+        <Separator/>
+        <MenuItem Header="Toggle Co_mment (Ctrl+/)" Click="ToggleComment_Click"/>
+        <MenuItem Header="_Duplicate Line" InputGesture="Ctrl+D" Click="DuplicateLine_Click"/>
+        <MenuItem Header="Move Line U_p" InputGesture="Alt+Up" Click="MoveLineUp_Click"/>
+        <MenuItem Header="Move Line Do_wn" InputGesture="Alt+Down" Click="MoveLineDown_Click"/>
+      </MenuItem>
 
       <MenuItem Header="_Run">
         <MenuItem Header="_Assemble" InputGesture="F3" Click="Assemble_Click"/>
@@ -308,7 +325,9 @@
                   Name="OutputTabs"
                   SelectedIndex="1">
         <TabItem Header="Messages">
+          <!-- Double-click a "Line N" / "File.cs(line,col)" message to jump to it. -->
           <TextBox Name="Messages"
+                   DoubleTapped="Messages_DoubleTapped"
                    IsReadOnly="True"
                    AcceptsReturn="True"
                    FontFamily="Cascadia Mono,Consolas"
