@@ -1,8 +1,8 @@
 # ASMForge — Full Development Roadmap
 
-> **Status audit:** Updated for **ASMForge v0.8.1** from the supplied source tree on 2026-10-01.  
+> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.10.1** on 2026-10-01 (see CHANGELOG.md).  
 > `[x]` means the feature is directly present in the source; `[~]` means it exists in partial form but does not yet satisfy the full roadmap item.  
-> Build/test execution could not be re-run in this audit environment because the .NET SDK is not installed, so build-only items remain unverified unless supported directly by source/tests.
+> `[T]` items were implemented in v0.9–v0.10.1 and are awaiting a final confirmation pass before being marked `[x]`.
 
 
 > A long-term development plan for turning ASMForge into a polished, teacher-ready MIPS assembly IDE, simulator, debugger, and C# interoperability environment.
@@ -90,7 +90,7 @@ This roadmap begins from that baseline.
 - [x] MARS-style `.half`, `.word`, `.float`, `.double` auto-alignment and `.align 0`
 - [x] Syscalls 1, 4, 9, 10, 11, 17, 34, 35, and 36
 - [!] Back button exists, but reverse-state restoration is explicitly not implemented yet *(addressed in v0.9 work below)*
-- [!] Text Segment Code column exists, but machine-code encoding is still not implemented (`—`)
+- [!] Text Segment Code column exists, but machine-code encoding is still not implemented (`—`) *(addressed in v0.9: Code column now encoded)*
 
 ### v0.9 in progress — per-step change record
 
@@ -136,7 +136,7 @@ Make the features that already exist dependable before expanding the application
 - [ ] Verify portable build if supported
 - [ ] Verify application launches with no missing dependencies
 - [x] Add a version string visible in the application
-- [ ] Add About dialog showing version/build information
+- [T] Add About dialog showing version/build information
 
 ## 1.2 Crash Prevention
 
@@ -181,7 +181,7 @@ Create automated tests for:
 - [ ] heap allocation
 - [ ] stack behavior
 - [ ] syscall output
-- [ ] pseudo-instruction expansion
+- [T] pseudo-instruction expansion
 - [ ] reset behavior
 - [ ] step behavior
 - [T] backstep behavior
@@ -377,19 +377,20 @@ Address       Code         Basic
 
 Tasks:
 
-- [ ] Encode R-type instructions
-- [ ] Encode I-type instructions
-- [ ] Encode J-type instructions
-- [ ] Encode pseudo-instruction expansions
-- [ ] Display generated binary
-- [ ] Display generated hexadecimal
-- [ ] Verify encoding against MARS
+- [T] Encode R-type instructions
+- [T] Encode I-type instructions
+- [T] Encode J-type instructions
+- [T] Expand pseudo-instructions into MARS-identical basic instructions (prerequisite for encoding)
+- [T] Encode pseudo-instruction expansions
+- [T] Display generated binary *(Code cell tooltip)*
+- [T] Display generated hexadecimal
+- [T] Verify encoding against MARS *(unit tests use standard MIPS32 encodings; spot-check in MARS)*
 
 ## 4.2 Source Mapping
 
 - [x] Preserve original source line
 - [x] Show expanded basic instruction
-- [ ] Show machine code
+- [T] Show machine code
 - [x] Show address
 - [ ] Allow clicking row to jump to editor
 - [ ] Allow clicking source to highlight corresponding expanded rows
@@ -407,15 +408,15 @@ Tasks:
 
 On hover or selection show:
 
-- [ ] opcode
-- [ ] funct field
-- [ ] rs
-- [ ] rt
-- [ ] rd
-- [ ] shamt
-- [ ] immediate
-- [ ] target
-- [ ] 32-bit binary representation
+- [T] opcode
+- [T] funct field
+- [T] rs
+- [T] rt
+- [T] rd
+- [T] shamt
+- [T] immediate
+- [T] target
+- [T] 32-bit binary representation
 
 ---
 
@@ -618,29 +619,29 @@ Support and verify:
 - [x] `not`
 - [x] `neg`
 - [x] `negu`
-- [ ] `abs`
-- [~] `mul`
+- [T] `abs`
+- [T] `mul`
 - [x] `rem`
 - [x] `remu`
 - [x] `b`
 - [x] `bal`
 - [x] `beqz`
 - [x] `bnez`
-- [~] `blt`
-- [~] `ble`
-- [~] `bgt`
-- [~] `bge`
-- [~] unsigned comparison branches
-- [ ] rotate pseudo-instructions
-- [ ] load-address variants
+- [T] `blt`
+- [T] `ble`
+- [T] `bgt`
+- [T] `bge`
+- [T] unsigned comparison branches
+- [T] rotate pseudo-instructions
+- [T] load-address variants
 
 For every pseudo-instruction:
 
 - [x] show source instruction
 - [x] show expansion
-- [ ] show generated machine code
-- [ ] match MARS result
-- [ ] test edge-case immediates
+- [T] show generated machine code
+- [T] match MARS result *(expansions come from MARS's own PseudoOps.txt)*
+- [T] test edge-case immediates
 
 ---
 
@@ -1883,7 +1884,7 @@ Before calling ASMForge 1.0:
 - [x] heap
 - [x] memory
 - [x] labels
-- [ ] machine code
+- [T] machine code
 
 ## Debugger
 
@@ -1942,7 +1943,7 @@ Aim to have these polished:
 - [x] MARS-compatible memory model
 - [x] register viewer
 - [x] memory viewer
-- [ ] machine-code viewer
+- [T] machine-code viewer
 - [T] breakpoints
 - [~] step / backstep
 - [ ] stack visualization
@@ -2209,12 +2210,12 @@ Before showing ASMForge to a teacher:
 - [T] backstep works
 - [x] register change is visible
 - [x] memory change is visible
-- [ ] machine code is visible
+- [T] machine code is visible
 - [ ] stack example works
 - [x] C# interop example works
 - [x] invalid code produces a useful error
-- [~] README is polished
-- [ ] About dialog gives project description
+- [T] README is polished *(rewritten for v0.10.1; screenshots still to add)*
+- [T] About dialog gives project description
 
 ---
 

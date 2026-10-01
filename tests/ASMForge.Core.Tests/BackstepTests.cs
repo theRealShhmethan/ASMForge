@@ -62,18 +62,19 @@ public class BackstepTests
     public void StepBackRestoresRegistersMemoryPcAndHaltState()
     {
         var m = Load(".data\nv: .word 1\n.text\nmain:\nli $t0, 42\nsw $t0, v\nli $t0, 0");
-        m.Step();
-        var pcBeforeStore = m.PC;
-        m.Step(); m.Step();
+        m.Step();                  // li $t0, 42
+        var pcBeforeStore = m.PC;  // sw $t0, v expands to lui $at + sw (as in MARS)
+        m.Run();
         Assert.True(m.Halted);
 
-        Assert.True(m.StepBack());
+        Assert.True(m.StepBack()); // undo li $t0, 0
         Assert.False(m.Halted);
         Assert.Equal(42, m.Registers[8]);
         Assert.True(m.LastStepWasUndo);
 
-        Assert.True(m.StepBack());
+        Assert.True(m.StepBack()); // undo sw
         Assert.Equal(1, m.Memory.ReadWord(0x10010000));
+        Assert.True(m.StepBack()); // undo lui $at
         Assert.Equal(pcBeforeStore, m.PC);
     }
 

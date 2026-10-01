@@ -182,7 +182,11 @@ public sealed class MipsMachine
         {
             case "nop": return;
             case "syscall": Syscall(); return;
-            case "break": throw new InvalidOperationException("break instruction executed.");
+            case "break":
+                // MARS's div/divu/rem/remu pseudo-instructions guard the divisor with a branch over "break".
+                throw new InvalidOperationException(DivisionSource.IsMatch(x.Source)
+                    ? "Division by zero (break instruction executed)."
+                    : "break instruction executed.");
 
             case "add": Set(a, 0, CheckedAdd(V(a, 1), V(a, 2))); return;
             case "addu": Set(a, 0, unchecked(V(a, 1) + V(a, 2))); return;
@@ -262,24 +266,24 @@ public sealed class MipsMachine
             case "swl": StoreWordLeft(a); return;
             case "swr": StoreWordRight(a); return;
 
-            case "beq": if (V(a, 0) == V(a, 1)) nextPc = Target(a[2]); return;
-            case "bne": if (V(a, 0) != V(a, 1)) nextPc = Target(a[2]); return;
-            case "bgez": if (V(a, 0) >= 0) nextPc = Target(a[1]); return;
-            case "bgtz": if (V(a, 0) > 0) nextPc = Target(a[1]); return;
-            case "blez": if (V(a, 0) <= 0) nextPc = Target(a[1]); return;
-            case "bltz": if (V(a, 0) < 0) nextPc = Target(a[1]); return;
-            case "bgezal": if (V(a, 0) >= 0) { Registers[31] = unchecked((int)(PC + 4)); nextPc = Target(a[1]); } return;
-            case "bltzal": if (V(a, 0) < 0) { Registers[31] = unchecked((int)(PC + 4)); nextPc = Target(a[1]); } return;
+            case "beq": if (V(a, 0) == V(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bne": if (V(a, 0) != V(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bgez": if (V(a, 0) >= 0) nextPc = BranchTarget(a[1]); return;
+            case "bgtz": if (V(a, 0) > 0) nextPc = BranchTarget(a[1]); return;
+            case "blez": if (V(a, 0) <= 0) nextPc = BranchTarget(a[1]); return;
+            case "bltz": if (V(a, 0) < 0) nextPc = BranchTarget(a[1]); return;
+            case "bgezal": if (V(a, 0) >= 0) { Registers[31] = unchecked((int)(PC + 4)); nextPc = BranchTarget(a[1]); } return;
+            case "bltzal": if (V(a, 0) < 0) { Registers[31] = unchecked((int)(PC + 4)); nextPc = BranchTarget(a[1]); } return;
 
             // Common MARS branch pseudo-ops are kept source-level for readable stepping.
-            case "bgt": if (V(a, 0) > V(a, 1)) nextPc = Target(a[2]); return;
-            case "bge": if (V(a, 0) >= V(a, 1)) nextPc = Target(a[2]); return;
-            case "blt": if (V(a, 0) < V(a, 1)) nextPc = Target(a[2]); return;
-            case "ble": if (V(a, 0) <= V(a, 1)) nextPc = Target(a[2]); return;
-            case "bgtu": if (UV(a, 0) > UV(a, 1)) nextPc = Target(a[2]); return;
-            case "bgeu": if (UV(a, 0) >= UV(a, 1)) nextPc = Target(a[2]); return;
-            case "bltu": if (UV(a, 0) < UV(a, 1)) nextPc = Target(a[2]); return;
-            case "bleu": if (UV(a, 0) <= UV(a, 1)) nextPc = Target(a[2]); return;
+            case "bgt": if (V(a, 0) > V(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bge": if (V(a, 0) >= V(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "blt": if (V(a, 0) < V(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "ble": if (V(a, 0) <= V(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bgtu": if (UV(a, 0) > UV(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bgeu": if (UV(a, 0) >= UV(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bltu": if (UV(a, 0) < UV(a, 1)) nextPc = BranchTarget(a[2]); return;
+            case "bleu": if (UV(a, 0) <= UV(a, 1)) nextPc = BranchTarget(a[2]); return;
 
             case "j": nextPc = Target(a[0]); return;
             case "jal": Registers[31] = unchecked((int)(PC + 4)); nextPc = Target(a[0]); return;
@@ -339,6 +343,20 @@ public sealed class MipsMachine
         }
         return unchecked((uint)V(s));
     }
+
+    // Branch operands are labels, or a signed instruction offset relative to PC + 4
+    // (MARS's generated code uses offsets, e.g. "bne $t2, $zero, 1" in the div expansion).
+    private uint BranchTarget(string operand)
+    {
+        var s = operand.Trim();
+        if (Program is not null && Program.Symbols.TryGetValue(s, out var address)) return address;
+        if (s.Length > 0 && (char.IsDigit(s[0]) || s[0] is '-' or '+'))
+            return unchecked(PC + 4 + (uint)(ParseInt(s) * 4));
+        return unchecked((uint)V(s));
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex DivisionSource =
+        new(@"(^|[\s:])(div|divu|rem|remu)\s", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private uint Target(string operand)
     {

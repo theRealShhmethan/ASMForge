@@ -17,25 +17,10 @@ public sealed class SimpleAssembler
     private enum Section { Text, Data }
     private sealed record ParsedLine(int Line, string Source, Section Section, List<string> Labels, string? Op, string[] Args, bool IsDirective);
 
-    private static readonly HashSet<string> KnownOperations = new(StringComparer.OrdinalIgnoreCase)
+    // Directives that reserve or initialize data; they are only valid in the .data section.
+    private static readonly HashSet<string> DataDirectives = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Integer/core MIPS instructions.
-        "add", "addu", "addi", "addiu", "sub", "subu",
-        "mul", "mult", "multu", "div", "divu", "madd", "maddu", "msub", "msubu",
-        "and", "andi", "or", "ori", "xor", "xori", "nor",
-        "sll", "sllv", "srl", "srlv", "sra", "srav",
-        "slt", "slti", "sltu", "sltiu", "clo", "clz",
-        "lui", "lw", "lwl", "lwr", "sw", "swl", "swr", "ll", "sc",
-        "lb", "lbu", "lh", "lhu", "sb", "sh",
-        "mfhi", "mflo", "mthi", "mtlo",
-        "beq", "bne", "bgez", "bgezal", "bgtz", "blez", "bltz", "bltzal",
-        "j", "jal", "jalr", "jr",
-        "syscall", "break", "nop",
-
-        // MARS pseudo-instructions implemented by ASMForge.
-        "li", "la", "move", "neg", "negu", "not", "rem", "remu",
-        "b", "bal", "beqz", "bnez", "bgt", "bge", "blt", "ble", "bgtu", "bgeu", "bltu", "bleu",
-        "seq", "sne", "sgt", "sge", "sle", "sgtu", "sgeu", "sleu"
+        ".byte", ".half", ".word", ".float", ".double", ".ascii", ".asciiz", ".space"
     };
 
     private static readonly Regex RegisterToken = new(@"\$[A-Za-z0-9]+", RegexOptions.Compiled);
@@ -116,7 +101,7 @@ public sealed class SimpleAssembler
 
             if (line.Op is not null && line.Section == Section.Text)
             {
-                var count = ExpandedInstructionCount(line.Op, line.Args);
+                var count = MatchLine(line).Form.InstructionCount;
                 textAddress = checked(textAddress + (uint)(count * 4));
                 instructionIndex += count;
             }
@@ -156,9 +141,18 @@ public sealed class SimpleAssembler
             if (line.IsDirective || line.Section != Section.Text || line.Op is null)
                 continue;
 
-            foreach (var instruction in Expand(line, symbols, textAddress))
+            foreach (var instruction in Expand(line, symbols))
             {
-                instructions.Add(instruction with { Address = textAddress });
+                uint machineCode;
+                try
+                {
+                    machineCode = InstructionEncoder.Encode(instruction.Op, instruction.Args, textAddress, symbols);
+                }
+                catch (Exception e) when (e is FormatException or OverflowException or ArgumentException or NotSupportedException)
+                {
+                    throw LineError(line, $"cannot encode '{instruction.BasicSource}': {e.Message}");
+                }
+                instructions.Add(instruction with { Address = textAddress, MachineCode = machineCode });
                 textAddress += 4;
             }
         }
@@ -172,8 +166,23 @@ public sealed class SimpleAssembler
     {
         foreach (var line in lines)
         {
-            if (line.IsDirective || line.Op is null) continue;
-            if (!KnownOperations.Contains(line.Op))
+            if (line.IsDirective && line.Op is not null)
+            {
+                var directive = line.Op;
+                if (directive is ".include")
+                    Error(line, ".include is not supported yet.");
+                if (directive is ".macro" or ".end_macro")
+                    Error(line, "MARS macros (.macro/.end_macro) are not supported yet.");
+                if (line.Section == Section.Text && DataDirectives.Contains(directive))
+                    Error(line, $"{directive} declares data but appears in the .text section. Add .data before it.");
+                if (line.Section == Section.Text && directive is not (".text" or ".ktext" or ".data" or ".kdata" or ".globl" or ".global" or ".extern" or ".set" or ".eqv" or ".align"))
+                    Error(line, $"unknown assembler directive '{directive}'.");
+                continue;
+            }
+            if (line.Op is null) continue;
+            if (line.Section == Section.Data)
+                Error(line, $"instruction '{line.Op}' appears in the .data section. Add .text before it.");
+            if (!InstructionSet.IsKnown(line.Op))
             {
                 var suggestion = FindClosestOperation(line.Op);
                 var hint = suggestion is null ? string.Empty : $"\nDid you mean '{suggestion}'?";
@@ -411,75 +420,52 @@ public sealed class SimpleAssembler
         }
     }
 
-    private IEnumerable<Instruction> Expand(ParsedLine line, IReadOnlyDictionary<string, uint> symbols, uint address)
+    // Tokenizes a text-section line and finds its MARS instruction form (basic forms first, then pseudo-instructions).
+    private (InstructionForm Form, List<IReadOnlyList<OperandToken>> Args) MatchLine(ParsedLine line)
     {
-        var op = line.Op!.ToLowerInvariant();
-        var a = line.Args;
-        Instruction I(string basicOp, params string[] args) => new(line.Line, basicOp, args, line.Source, $"{basicOp} {string.Join(", ", args)}".Trim());
-
-        switch (op)
+        List<IReadOnlyList<OperandToken>> args;
+        try
         {
-            case "move" when a.Length == 2:
-                yield return I("addu", a[0], a[1], "$zero"); yield break;
-            case "neg" when a.Length == 2:
-                yield return I("sub", a[0], "$zero", a[1]); yield break;
-            case "negu" when a.Length == 2:
-                yield return I("subu", a[0], "$zero", a[1]); yield break;
-            case "not" when a.Length == 2:
-                yield return I("nor", a[0], a[1], "$zero"); yield break;
-            case "rem" when a.Length == 3:
-                yield return I("div", a[1], a[2]); yield return I("mfhi", a[0]); yield break;
-            case "remu" when a.Length == 3:
-                yield return I("divu", a[1], a[2]); yield return I("mfhi", a[0]); yield break;
-            case "li" when a.Length == 2:
-            {
-                var value = unchecked((uint)ResolveValue(a[1], symbols));
-                if (unchecked((int)value) is >= short.MinValue and <= short.MaxValue)
-                    yield return I("addiu", a[0], "$zero", unchecked((int)value).ToString(CultureInfo.InvariantCulture));
-                else if (value <= ushort.MaxValue)
-                    yield return I("ori", a[0], "$zero", value.ToString(CultureInfo.InvariantCulture));
-                else
-                {
-                    yield return I("lui", a[0], ((value >> 16) & 0xffff).ToString(CultureInfo.InvariantCulture));
-                    yield return I("ori", a[0], a[0], (value & 0xffff).ToString(CultureInfo.InvariantCulture));
-                }
-                yield break;
-            }
-            case "la" when a.Length == 2:
-            {
-                var value = unchecked((uint)ResolveValue(a[1], symbols));
-                yield return I("lui", a[0], ((value >> 16) & 0xffff).ToString(CultureInfo.InvariantCulture));
-                yield return I("ori", a[0], a[0], (value & 0xffff).ToString(CultureInfo.InvariantCulture));
-                yield break;
-            }
-            case "b" when a.Length == 1:
-                yield return I("beq", "$zero", "$zero", a[0]); yield break;
-            case "bal" when a.Length == 1:
-                yield return I("bgezal", "$zero", a[0]); yield break;
-            case "beqz" when a.Length == 2:
-                yield return I("beq", a[0], "$zero", a[1]); yield break;
-            case "bnez" when a.Length == 2:
-                yield return I("bne", a[0], "$zero", a[1]); yield break;
-            default:
-                yield return I(op, a); yield break;
+            args = line.Args.Select(a => (IReadOnlyList<OperandToken>)InstructionSet.Tokenize(a, _equates)).ToList();
         }
+        catch (FormatException e)
+        {
+            throw LineError(line, e.Message);
+        }
+
+        var flat = args.SelectMany(t => t).ToList();
+        var form = InstructionSet.Match(line.Op!, flat);
+        if (form is not null) return (form, args);
+
+        var op = line.Op!;
+        var message = new StringBuilder($"Line {line.Line}: invalid operands for '{op}'.");
+        if (InstructionSet.MatchesIgnoringRange(op, flat))
+            message.Append(" An immediate value is out of range (shift amount: 0..31; 16-bit: -32768..32767 or 0..65535).");
+        if (op.Equals("li", StringComparison.OrdinalIgnoreCase) && flat.Any(t => t.Kind == TokenKind.Identifier))
+            message.Append(" Use 'la' to load a label's address.");
+        message.AppendLine().Append("    ").Append(line.Source);
+        message.AppendLine().Append("Accepted forms:");
+        foreach (var example in InstructionSet.FormsOf(op).Select(f => f.Example).Distinct())
+            message.AppendLine().Append("    ").Append(example);
+        throw new InvalidOperationException(message.ToString().Replace("\r\n", "\n"));
     }
 
-    private int ExpandedInstructionCount(string op, string[] args)
+    // Expands a source line into basic instructions exactly as MARS would.
+    private IEnumerable<Instruction> Expand(ParsedLine line, IReadOnlyDictionary<string, uint> symbols)
     {
-        op = op.ToLowerInvariant();
-        if (op is "rem" or "remu" && args.Length == 3) return 2;
-        if (op == "la" && args.Length == 2) return 2;
-        if (op == "li" && args.Length == 2)
+        var (form, args) = MatchLine(line);
+        List<(string Op, string[] Args)> expanded;
+        try
         {
-            try
-            {
-                var value = unchecked((uint)ResolveValue(args[1], new Dictionary<string, uint>()));
-                return unchecked((int)value) is >= short.MinValue and <= short.MaxValue || value <= ushort.MaxValue ? 1 : 2;
-            }
-            catch { return 2; }
+            expanded = InstructionSet.Expand(form, args, label => symbols.TryGetValue(label, out var address)
+                ? address
+                : throw new FormatException($"undefined label '{label}'."));
         }
-        return 1;
+        catch (FormatException e)
+        {
+            throw LineError(line, e.Message);
+        }
+        return expanded.Select(x => new Instruction(line.Line, x.Op, x.Args, line.Source, $"{x.Op} {string.Join(", ", x.Args)}".Trim()));
     }
 
     private long ResolveValue(string token, IReadOnlyDictionary<string, uint> symbols)
@@ -564,11 +550,12 @@ public sealed class SimpleAssembler
     }
     private static bool IsIdentifier(string s) => Regex.IsMatch(s, @"^[A-Za-z_.$][A-Za-z0-9_.$]*$");
     private static string Require(string[] args, int index, string op) => index < args.Length ? args[index] : throw new InvalidOperationException($"{op} is missing an operand.");
-    private static void Error(ParsedLine line, string message) => throw new InvalidOperationException($"Line {line.Line}: {message}\n    {line.Source}");
+    private static void Error(ParsedLine line, string message) => throw LineError(line, message);
+    private static InvalidOperationException LineError(ParsedLine line, string message) => new($"Line {line.Line}: {message}\n    {line.Source}");
 
     private static string? FindClosestOperation(string value)
     {
-        var best = KnownOperations.Select(op => (Op: op, Distance: EditDistance(value, op)))
+        var best = InstructionSet.Mnemonics.Select(op => (Op: op, Distance: EditDistance(value, op)))
             .OrderBy(x => x.Distance).ThenBy(x => x.Op, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
         return best.Op is not null && best.Distance <= Math.Max(2, value.Length / 3) ? best.Op : null;
     }

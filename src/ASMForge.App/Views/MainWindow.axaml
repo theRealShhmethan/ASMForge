@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ASMForge.App.Views.MainWindow"
-        Title="ASMForge v0.8.1"
+        Title="ASMForge"
         Width="1450"
         Height="900"
         MinWidth="1080"
@@ -59,7 +59,9 @@
       </MenuItem>
 
       <MenuItem Header="_Tools"/>
-      <MenuItem Header="_Help"/>
+      <MenuItem Header="_Help">
+        <MenuItem Header="_About ASMForge" Click="About_Click"/>
+      </MenuItem>
     </Menu>
 
     <Border Grid.Row="1"
@@ -174,7 +176,19 @@
                           SelectionMode="Single">
                   <DataGrid.Columns>
                     <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="120"/>
-                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="120"/>
+                    <!-- Machine word; hover for opcode/rs/rt/rd/shamt/funct/immediate fields and binary. -->
+                    <DataGridTemplateColumn Header="Code" Width="120">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <Border Background="Transparent" Padding="12,0">
+                            <ToolTip.Tip>
+                              <TextBlock Text="{Binding CodeDetails}" FontFamily="Cascadia Mono,Consolas"/>
+                            </ToolTip.Tip>
+                            <TextBlock Text="{Binding Code}" VerticalAlignment="Center"/>
+                          </Border>
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="Basic" Binding="{Binding Basic}" Width="2*"/>
                     <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="2*"/>
                   </DataGrid.Columns>

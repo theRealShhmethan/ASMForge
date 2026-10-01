@@ -3,6 +3,9 @@ namespace ASMForge.Core.Assembly;
 public sealed record Instruction(int Line, string Op, string[] Args, string Source, string BasicSource)
 {
     public uint Address { get; init; }
+
+    /// <summary>The 32-bit MIPS machine word for this basic instruction.</summary>
+    public uint MachineCode { get; init; }
 }
 
 public sealed class AssemblyProgram

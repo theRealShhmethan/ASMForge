@@ -8,7 +8,7 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        DiagnosticLog.Info($"Application starting. .NET={Environment.Version}; OS={Environment.OSVersion}; BaseDir={AppContext.BaseDirectory}");
+        DiagnosticLog.Info($"Application starting. Version={AppInfo.Version}; .NET={Environment.Version}; OS={Environment.OSVersion}; BaseDir={AppContext.BaseDirectory}");
         AppDomain.CurrentDomain.UnhandledException += (_, e) => DiagnosticLog.Error("Unhandled AppDomain exception", e.ExceptionObject as Exception);
         Trace.Listeners.Add(new TextWriterTraceListener(Console.Out));
         try { BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); }

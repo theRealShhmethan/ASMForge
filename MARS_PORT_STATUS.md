@@ -1,11 +1,11 @@
-# MARS Port Status - ASMForge v0.8.1
+# MARS Port Status - ASMForge v0.10.1
 
 ## Working / ported
 - Core integer MIPS simulation from the v0.8 checkpoint.
 - Real MIPS text/data addresses.
 - Data directives and labels.
 - MARS-style data alignment.
-- Common pseudo-instructions.
+- Pseudo-instructions expanded exactly as MARS does, driven by MARS's own PseudoOps.txt (integer forms; floating-point forms pending). Text addresses match MARS.
 - Core load/store, arithmetic, branch/jump, HI/LO behavior.
 - MARS-compatible syscall subset already present in v0.8.
 - Live Data/Heap/Stack memory viewer.
@@ -14,7 +14,7 @@
 - Public C# `ASMForgeRuntime` API.
 - Built-in Roslyn compilation/execution of C# project files.
 - Project Explorer now includes generated C# project files.
-- Backstep (v0.9, pending build verification): per-step change record restores registers, HI/LO, memory, PC, heap break and console output.
+- Backstep (v0.9): per-step change record restores registers, HI/LO, memory, PC, heap break and console output.
 
 ## Still outstanding for broader MARS compatibility
 - Full Coprocessor 1 floating-point implementation.
@@ -23,6 +23,6 @@
 - Full macro / include compatibility.
 - Memory-mapped I/O.
 - Delayed-branch configuration.
-- Full machine-code encoding/decoding in the Text Segment Code column.
+- Machine-code decoding (disassembling words back to instructions); encoding is done.
 - Alternate MARS memory configurations.
 - Full multi-file MIPS linking semantics.

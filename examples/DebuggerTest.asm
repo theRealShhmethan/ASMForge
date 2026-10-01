@@ -19,6 +19,3 @@ loop:
     li   $t1, 100            # <- put the cursor here and use Run to Cursor (Ctrl+F10)
 
 # Infinite loop: Run keeps going until you press Pause (F6) or Stop (Shift+F5).
-spin:
-    addi $t2, $t2, 1
-    j    spin

@@ -39,12 +39,14 @@ public partial class MainWindow : Window
     private AppSettings _settings = AppSettings.Load();
     // True while restoring or tearing down, so tab changes don't overwrite the saved session.
     private bool _sessionPaused;
+    // Set once the user has answered the unsaved-changes prompt, so the second close goes through.
+    private bool _closeConfirmed;
     // Set while a MIPS program runs on a background thread; cancel it to Pause or Stop.
     private CancellationTokenSource? _runCts;
     private bool _stopRequested;
     // Copies console output to Run I/O while a program runs (registers/memory refresh when it stops).
     private readonly Avalonia.Threading.DispatcherTimer _runTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
-    private const string Sample = "# ASMForge v0.8.1 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """"
 using System;
 using ASMForge.Core.Execution;
@@ -187,6 +189,8 @@ main:
             var r = dialog.Result;
             if (r.Kind == 2)
             {
+                // Creating a project replaces all open tabs, so offer to save first.
+                if (!await ConfirmUnsavedAsync(_documents, "creating a new project")) return;
                 var folder = Path.Combine(r.Location, r.Name); Directory.CreateDirectory(folder);
                 File.WriteAllText(Path.Combine(folder, r.Name + ".asmforge"), $"{{\n  \"name\": \"{r.Name.Replace("\"", "")}\",\n  \"version\": 1\n}}\n");
                 var main = Path.Combine(folder, "main.asm");
@@ -229,16 +233,79 @@ main:
     private void SaveAs_Click(object? s, RoutedEventArgs e) => SaveActive(true);
     private async void SaveActive(bool saveAs)
     {
-        var doc = ActiveDocument; if (doc is null) return; var path = doc.Path;
+        var doc = ActiveDocument;
+        if (doc is not null) await SaveDocumentAsync(doc, saveAs);
+    }
+
+    /// <summary>Saves a document, asking for a path when it has none. Returns false if cancelled or failed.</summary>
+    private async Task<bool> SaveDocumentAsync(EditorDocument doc, bool saveAs)
+    {
+        var path = doc.Path;
         if (saveAs || path is null)
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = "Save file", SuggestedFileName = doc.Name });
-            if (file is null) return; path = file.Path.LocalPath;
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = $"Save {doc.Name}", SuggestedFileName = doc.Name });
+            if (file is null) return false;
+            path = file.Path.LocalPath;
         }
-        try { File.WriteAllText(path!, doc.Editor.Text ?? ""); doc.Path = path; doc.Name = Path.GetFileName(path); doc.Dirty = false; UpdateTabHeaders(); RefreshExplorer(); SaveSession(); Status.Text = $"Saved {doc.Name}"; }
-        catch (Exception ex) { ShowError(ex); }
+        try
+        {
+            File.WriteAllText(path, doc.Editor.Text ?? "");
+            doc.Path = path; doc.Name = Path.GetFileName(path); doc.Dirty = false;
+            UpdateTabHeaders(); RefreshExplorer(); SaveSession();
+            Status.Text = $"Saved {doc.Name}";
+            return true;
+        }
+        catch (Exception ex) { ShowError(ex); return false; }
     }
-    private void CloseFile_Click(object? s, RoutedEventArgs e) => CloseDocumentAt(EditorTabs.SelectedIndex);
+
+    // An empty, never-saved document has nothing worth keeping.
+    private static bool NeedsSave(EditorDocument doc) => doc.Dirty && !(doc.Path is null && string.IsNullOrEmpty(doc.Editor.Text));
+
+    /// <summary>
+    /// Asks Save / Don't Save / Cancel for the given unsaved documents. Returns true when it is OK to continue
+    /// (everything saved, or the user chose Don't Save), false when the user cancelled or a save was cancelled.
+    /// </summary>
+    private async Task<bool> ConfirmUnsavedAsync(IReadOnlyList<EditorDocument> documents, string action)
+    {
+        var unsaved = documents.Where(NeedsSave).ToList();
+        if (unsaved.Count == 0) return true;
+
+        var question = unsaved.Count == 1
+            ? $"Save changes to {unsaved[0].Name} before {action}?"
+            : $"Save changes to {unsaved.Count} files before {action}?";
+        var details = string.Join("\n", unsaved.Select(d => $"• {d.Name}{(d.Path is null ? " (not saved yet)" : "")}"));
+        switch (await SavePromptDialog.ShowAsync(this, question, details))
+        {
+            case SaveChoice.Cancel:
+                Status.Text = "Cancelled";
+                return false;
+            case SaveChoice.DontSave:
+                return true;
+            default:
+                foreach (var doc in unsaved)
+                    if (!await SaveDocumentAsync(doc, saveAs: false)) return false;
+                return true;
+        }
+    }
+
+    private void CloseFile_Click(object? s, RoutedEventArgs e) => RequestCloseDocument(EditorTabs.SelectedIndex);
+
+    // Closes a tab after offering to save it. The document is re-located after the prompt in case tabs changed.
+    private async void RequestCloseDocument(int index)
+    {
+        if (index < 0 || index >= _documents.Count) return;
+        var doc = _documents[index];
+        if (!await ConfirmUnsavedAsync(new[] { doc }, "closing it")) return;
+        CloseDocumentAt(_documents.IndexOf(doc));
+    }
+
+    private async void About_Click(object? s, RoutedEventArgs e) => await new AboutDialog().ShowDialog(this);
+
+    private void UpdateTitle()
+    {
+        var doc = ActiveDocument;
+        Title = doc is null ? AppInfo.DisplayName : $"{doc.Name}{(doc.Dirty ? " *" : "")} - {AppInfo.DisplayName}";
+    }
 
     private void CloseDocumentAt(int index)
     {
@@ -249,7 +316,7 @@ main:
         _documents.RemoveAt(index);
         EditorTabs.Items.RemoveAt(index);
         if (_documents.Count == 0)
-            OpenDocument(null, "Untitled.asm", "", true);
+            OpenDocument(null, "Untitled.asm", "", false);
         else
             EditorTabs.SelectedIndex = Math.Min(index, _documents.Count - 1);
         SaveSession();
@@ -323,7 +390,7 @@ main:
         {
             if (e.GetCurrentPoint(tab).Properties.PointerUpdateKind != PointerUpdateKind.MiddleButtonPressed) return;
             var index = EditorTabs.Items.IndexOf(tab);
-            CloseDocumentAt(index);
+            RequestCloseDocument(index);
             e.Handled = true;
         };
 
@@ -455,7 +522,7 @@ main:
         e.Handled = true;
     }
     private void CloseAllDocuments() { _documents.Clear(); EditorTabs.Items.Clear(); }
-    private void UpdateTabHeaders() { for (var i = 0; i < _documents.Count && i < EditorTabs.Items.Count; i++) if (EditorTabs.Items[i] is TabItem t) t.Header = _documents[i].Name + (_documents[i].Dirty ? " *" : ""); }
+    private void UpdateTabHeaders() { for (var i = 0; i < _documents.Count && i < EditorTabs.Items.Count; i++) if (EditorTabs.Items[i] is TabItem t) t.Header = _documents[i].Name + (_documents[i].Dirty ? " *" : ""); UpdateTitle(); }
     private void RefreshExplorer()
     {
         if (ExplorerList is null || ProjectNameText is null)
@@ -508,7 +575,7 @@ main:
     }
 
     private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
-    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; SaveSession(); Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
+    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; SaveSession(); UpdateTitle(); Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e)
     {
         _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked;
@@ -945,8 +1012,21 @@ main:
         }
     }
     private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.B) { ToggleBreakpoint_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.F5) { Stop_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F6) { Pause_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F9) { Back_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.F10) { RunToCursor_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
-    private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
+    private async void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
     {
+        // Unsaved work: cancel this close, ask, and close again only if the user agrees.
+        // e.Cancel must be set before the first await.
+        if (!_closeConfirmed && _documents.Any(NeedsSave))
+        {
+            e.Cancel = true;
+            if (await ConfirmUnsavedAsync(_documents, "closing ASMForge"))
+            {
+                _closeConfirmed = true;
+                Close();
+            }
+            return;
+        }
+
         // AvaloniaEdit 11.x can try to render its line-number margin while the
         // window is being torn down. At that point inherited font metrics may
         // already be invalid, which can produce an emSize <= 0 exception.
@@ -1040,7 +1120,7 @@ main:
         if (!ReferenceEquals(_program, _textSegmentProgram))
         {
             var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n');
-            _textRows = _program.Instructions.Select(x => new TextRow($"0x{x.Address:X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList();
+            _textRows = _program.Instructions.Select(x => new TextRow($"0x{x.Address:X8}", $"0x{x.MachineCode:X8}", InstructionEncoder.Describe(x.MachineCode), x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList();
             TextSegmentGrid.ItemsSource = _textRows;
             _textSegmentProgram = _program;
         }
@@ -1173,7 +1253,8 @@ main:
 
     private string FormatRegister(int value) { var mode = RegisterFormat?.SelectedIndex ?? 0; var u = unchecked((uint)value); return mode switch { 1 => value.ToString(), 2 => u.ToString(), 3 => Convert.ToString(u, 2).PadLeft(32, '0'), 4 => FormatAscii(u), _ => $"0x{u:X8}" }; }
     private static string FormatAscii(uint value) { var b = (byte)(value & 0xFF); return b switch { 0 => "'\\0'", 9 => "'\\t'", 10 => "'\\n'", 13 => "'\\r'", >= 32 and <= 126 => $"'{(char)b}'", _ => $"'\\x{b:X2}'" }; }
-    private sealed record TextRow(string Address, string Code, string Basic, string Source);
+    // CodeDetails is the field-by-field breakdown of the machine word, shown when hovering the Code cell.
+    private sealed record TextRow(string Address, string Code, string CodeDetails, string Basic, string Source);
     private sealed record MemoryCell(string Text, IBrush? Background, FontWeight Weight, string? Tip);
 
     // Register and memory rows are created once and updated in place (with change notifications)
@@ -1250,7 +1331,7 @@ internal sealed class AppSettings
     public string? ProjectFolder { get; set; }
     public List<string> OpenFiles { get; set; } = new();
     public string? ActiveFile { get; set; }
-    private static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ASMForge", "settings.json");
+    internal static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ASMForge", "settings.json");
     public static AppSettings Load() { try { return File.Exists(SettingsPath) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new() : new(); } catch { return new(); } }
     public void Save() { try { Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!); File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true })); } catch { } }
 }
