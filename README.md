@@ -1,39 +1,47 @@
-# ASMForge v0.7.2
+# ASMForge v0.8
 
-ASMForge is a learning-focused MIPS/assembly IDE and simulator inspired by MARS, with a modern editor and room for future C# + simulated-assembly projects.
+ASMForge v0.8 continues the MARS-compatibility port while keeping the existing C#/Avalonia editor architecture.
 
-## Fixes in v0.7.2
+## v0.8 highlights
 
-### Line-number crash fix
-- Fixes the AvaloniaEdit shutdown/tab-close crash where the line-number margin could render with an invalid font size (`emSize <= 0`).
-- ASMForge now removes line-number margins before an editor is detached and before the main window is torn down.
-- Completion popups are closed before editor teardown as well.
+- Working runtime Memory Viewer backed by the same `MipsMemory` used by execution.
+- Data, Heap, Stack, and Custom memory views.
+- Custom memory jumps accept hexadecimal/decimal addresses or assembled symbol names.
+- Memory display refreshes after assemble, step, run, and reset.
+- Each memory row shows four 32-bit words plus a 16-byte ASCII preview.
+- Fixed MARS-style automatic data alignment so labels on `.half`, `.word`, `.float`, and `.double` point to the aligned address.
+- `.align 0` disables automatic numeric alignment until a new `.data`/`.kdata` segment, matching MARS behavior.
+- Fixed syscall 34 to print MARS-style `0x` plus eight hexadecimal digits.
+- Fixed New C# File generation so the file contains real newlines instead of literal `\n` sequences.
+- Added the public `ASMForgeRuntime` C# API in `ASMForge.Core`.
+- Added a runnable C# interoperability example under `examples/CSharpInterop`.
+- Included `examples/MemoryViewerTest.asm` for testing Data/Heap/Stack updates.
 
-### Assembly diagnostics
-- Unknown mnemonics now fail during assembly instead of waiting until execution.
-- Common typos get a suggestion when a close instruction name exists. Example: `syscal` reports an unknown instruction and suggests `syscall`.
-- Invalid register names such as `$t20` fail during assembly.
-- Numeric register aliases remain legal, but ASMForge reports a warning explaining the named alias (for example, `$2` is `$v0`).
+## C# runtime API
 
-### Shortcuts and tabs
-- **F3** assembles the active assembly file.
-- **F5** runs.
-- **F10** steps.
-- **Ctrl+W** closes the active tab.
-- Middle-clicking a file tab closes that tab.
+A host C# application that references `ASMForge.Core` can now do:
 
-## Existing v0.7 features
-- MARS-like EDIT / EXECUTE workspace.
-- Text Segment, Data Segment placeholder, Registers, Coproc 0/1 tabs, Messages and Run I/O.
-- Project Explorer with project name and ASM/C# source filtering.
-- AvaloniaEdit editor with line numbers, syntax highlighting, multi-line Tab/Shift+Tab indentation, themed editor border and MIPS autocomplete.
-- Light, Dark and System theme modes.
-- Register views: Hex, Signed Decimal, Unsigned Decimal, Binary and ASCII.
+```csharp
+var mips = new ASMForgeRuntime();
+mips.LoadAssembly(source);
+mips.Run();
+Console.WriteLine(mips.Registers["$t0"]);
+Console.WriteLine(mips.Memory.ReadWord(0x10010000));
+```
 
-## Current simulator status
-Full MARS compatibility is still in progress. The machine-code column, full data-segment implementation, complete instruction/directive/syscall coverage, coprocessors and true backstep state restoration remain future work.
+Available runtime state includes `PC`, `Output`, `ExitCode`, `IsHalted`, `IsRunning`, named/numbered registers, HI/LO, and simulated MIPS memory.
 
-## Diagnostics
-When running under Visual Studio, ASMForge writes diagnostic messages to **View > Output > Debug**. Persistent logs are also written to:
+## Memory Viewer test
 
-`%LOCALAPPDATA%\ASMForge\Logs`
+Open `examples/MemoryViewerTest.asm`, assemble it, then step through it while viewing:
+
+- **Data**: starts at `0x10010000` and contains the declared values/string.
+- **Heap**: starts at `0x10040000`; the test writes `0x11223344` there after syscall 9.
+- **Stack**: follows `$sp`; the test allocates 16 bytes and writes decimal 99.
+- **Custom**: enter an address or a symbol such as `wordValue` and press **Go**.
+
+## Current scope
+
+The v0.8 core covers the integer/source-level subset already ported from MARS. Coprocessor 1, Coprocessor 0, exception/trap handling, full macro/include processing, all remaining syscalls, backstep state restoration, delayed branching, full machine-code encoding/decoding, and other advanced MARS facilities remain future work.
+
+The bundled `reference/Mars.jar` remains the behavioral reference for compatibility work.

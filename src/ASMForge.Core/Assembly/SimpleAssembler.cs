@@ -60,16 +60,27 @@ public sealed class SimpleAssembler
         var textAddress = AssemblyProgram.DefaultTextBase;
         var dataAddress = AssemblyProgram.DefaultDataBase;
         var instructionIndex = 0;
+        var autoAlign = true;
 
         // Pass 1: establish all source symbols and segment addresses.
+        // MARS automatically aligns numeric data directives unless .align 0 has disabled
+        // automatic alignment. Labels on numeric declarations point at the aligned value.
         foreach (var line in lines)
         {
-            if (line.IsDirective && line.Op?.Equals(".eqv", StringComparison.OrdinalIgnoreCase) == true)
-            {
+            var op = line.Op?.ToLowerInvariant();
+            if (line.IsDirective && op == ".eqv")
                 continue;
-            }
+
+            if (line.IsDirective && op is ".data" or ".kdata")
+                autoAlign = true;
 
             var currentAddress = line.Section == Section.Text ? textAddress : dataAddress;
+            if (line.Section == Section.Data && line.IsDirective && autoAlign)
+            {
+                var natural = NaturalDataAlignment(op);
+                if (natural > 1) currentAddress = AlignAddress(currentAddress, natural);
+            }
+
             foreach (var label in line.Labels)
             {
                 if (symbols.ContainsKey(label))
@@ -82,7 +93,24 @@ public sealed class SimpleAssembler
             if (line.IsDirective)
             {
                 if (line.Section == Section.Data)
-                    dataAddress = checked(dataAddress + (uint)DirectiveSize(line.Op!, line.Args, dataAddress));
+                {
+                    if (op == ".align")
+                    {
+                        var exponent = checked((int)ParseNumber(Require(line.Args, 0, op)));
+                        if (exponent < 0) Error(line, ".align requires a non-negative integer.");
+                        if (exponent == 0) autoAlign = false;
+                        else dataAddress = AlignAddress(dataAddress, 1u << exponent);
+                    }
+                    else
+                    {
+                        if (autoAlign)
+                        {
+                            var natural = NaturalDataAlignment(op);
+                            if (natural > 1) dataAddress = AlignAddress(dataAddress, natural);
+                        }
+                        dataAddress = checked(dataAddress + (uint)DirectivePayloadSize(op!, line.Args));
+                    }
+                }
                 continue;
             }
 
@@ -97,11 +125,28 @@ public sealed class SimpleAssembler
         // Pass 2: emit initialized data and source-level executable instructions.
         var memory = new Dictionary<uint, byte>();
         dataAddress = AssemblyProgram.DefaultDataBase;
+        autoAlign = true;
         foreach (var line in lines)
         {
+            var op = line.Op?.ToLowerInvariant();
+            if (line.IsDirective && op is ".data" or ".kdata")
+            {
+                autoAlign = true;
+                continue;
+            }
             if (!line.IsDirective || line.Section != Section.Data)
                 continue;
-            EmitDirective(line, memory, symbols, ref dataAddress);
+
+            if (op == ".align")
+            {
+                var exponent = checked((int)ParseNumber(Require(line.Args, 0, op)));
+                if (exponent < 0) Error(line, ".align requires a non-negative integer.");
+                if (exponent == 0) autoAlign = false;
+                else dataAddress = AlignAddress(dataAddress, 1u << exponent);
+                continue;
+            }
+
+            EmitDirective(line, memory, symbols, ref dataAddress, autoAlign);
         }
 
         var instructions = new List<Instruction>();
@@ -283,18 +328,17 @@ public sealed class SimpleAssembler
         return result.ToArray();
     }
 
-    private int DirectiveSize(string op, string[] args, uint address)
+    private int DirectivePayloadSize(string op, string[] args)
     {
         return op.ToLowerInvariant() switch
         {
-            ".text" or ".data" or ".ktext" or ".kdata" or ".globl" or ".global" or ".set" or ".eqv" or ".extern" => 0,
-            ".align" => AlignmentPadding(address, 1u << checked((int)ParseNumber(Require(args, 0, op)))),
+            ".text" or ".data" or ".ktext" or ".kdata" or ".globl" or ".global" or ".set" or ".eqv" or ".extern" or ".align" => 0,
             ".space" => checked((int)ParseNumber(Require(args, 0, op))),
             ".byte" => args.Length,
-            ".half" => AlignmentPadding(address, 2) + args.Length * 2,
-            ".word" => AlignmentPadding(address, 4) + args.Length * 4,
-            ".float" => AlignmentPadding(address, 4) + args.Length * 4,
-            ".double" => AlignmentPadding(address, 8) + args.Length * 8,
+            ".half" => args.Length * 2,
+            ".word" => args.Length * 4,
+            ".float" => args.Length * 4,
+            ".double" => args.Length * 8,
             ".ascii" => args.Sum(x => Encoding.UTF8.GetByteCount(ParseStringLiteral(x))),
             ".asciiz" => args.Sum(x => Encoding.UTF8.GetByteCount(ParseStringLiteral(x)) + 1),
             ".include" => throw new NotSupportedException(".include requires file-system-aware assembly and is not enabled in this build yet."),
@@ -303,7 +347,18 @@ public sealed class SimpleAssembler
         };
     }
 
-    private void EmitDirective(ParsedLine line, Dictionary<uint, byte> memory, IReadOnlyDictionary<string, uint> symbols, ref uint address)
+    private static uint NaturalDataAlignment(string? op) => op?.ToLowerInvariant() switch
+    {
+        ".half" => 2,
+        ".word" or ".float" => 4,
+        ".double" => 8,
+        _ => 1
+    };
+
+    private static uint AlignAddress(uint address, uint alignment) =>
+        checked(address + (uint)AlignmentPadding(address, alignment));
+
+    private void EmitDirective(ParsedLine line, Dictionary<uint, byte> memory, IReadOnlyDictionary<string, uint> symbols, ref uint address, bool autoAlign)
     {
         var op = line.Op!.ToLowerInvariant();
         switch (op)
@@ -311,7 +366,6 @@ public sealed class SimpleAssembler
             case ".text": case ".data": case ".ktext": case ".kdata": case ".globl": case ".global": case ".set": case ".eqv": case ".extern":
                 return;
             case ".align":
-                address += (uint)AlignmentPadding(address, 1u << checked((int)ParseNumber(Require(line.Args, 0, op))));
                 return;
             case ".space":
                 address += checked((uint)ParseNumber(Require(line.Args, 0, op)));
@@ -320,15 +374,15 @@ public sealed class SimpleAssembler
                 foreach (var a in line.Args) WriteByte(memory, ref address, unchecked((byte)ResolveValue(a, symbols)));
                 return;
             case ".half":
-                AlignForData(ref address, 2);
+                if (autoAlign) AlignForData(ref address, 2);
                 foreach (var a in line.Args) WriteHalf(memory, ref address, unchecked((ushort)ResolveValue(a, symbols)));
                 return;
             case ".word":
-                AlignForData(ref address, 4);
+                if (autoAlign) AlignForData(ref address, 4);
                 foreach (var a in line.Args) WriteWord(memory, ref address, unchecked((uint)ResolveValue(a, symbols)));
                 return;
             case ".float":
-                AlignForData(ref address, 4);
+                if (autoAlign) AlignForData(ref address, 4);
                 foreach (var a in line.Args)
                 {
                     var bits = unchecked((uint)BitConverter.SingleToInt32Bits(float.Parse(a, CultureInfo.InvariantCulture)));
@@ -336,7 +390,7 @@ public sealed class SimpleAssembler
                 }
                 return;
             case ".double":
-                AlignForData(ref address, 8);
+                if (autoAlign) AlignForData(ref address, 8);
                 foreach (var a in line.Args)
                 {
                     var bits = unchecked((ulong)BitConverter.DoubleToInt64Bits(double.Parse(a, CultureInfo.InvariantCulture)));
@@ -352,7 +406,7 @@ public sealed class SimpleAssembler
                 }
                 return;
             default:
-                _ = DirectiveSize(op, line.Args, address); // throws useful error
+                _ = DirectivePayloadSize(op, line.Args); // throws useful error
                 return;
         }
     }

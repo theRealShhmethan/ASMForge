@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ASMForge.App.Views.MainWindow"
-        Title="ASMForge v0.7.2"
+        Title="ASMForge v0.8"
         Width="1450"
         Height="900"
         MinWidth="1080"
@@ -164,10 +164,29 @@
                 <TextBlock Text="Data Segment"
                            FontWeight="Bold"
                            Margin="6,3,6,6"/>
-                <Grid Grid.Row="1">
-                  <TextBlock Margin="10"
-                             Text="MARS-style simulated Data Segment viewer is next. This pane is reserved for ASMForge memory beginning at 0x10010000."
-                             TextWrapping="Wrap"/>
+                <Grid Grid.Row="1" RowDefinitions="Auto,*">
+                  <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="4,0,4,5">
+                    <ComboBox Name="MemorySegment" Width="125" SelectedIndex="0" SelectionChanged="MemorySegment_SelectionChanged">
+                      <ComboBoxItem Content="Data"/>
+                      <ComboBoxItem Content="Heap"/>
+                      <ComboBoxItem Content="Stack"/>
+                      <ComboBoxItem Content="Custom"/>
+                    </ComboBox>
+                    <TextBlock Grid.Column="1" Text="Address" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox Grid.Column="2" Name="MemoryAddressBox" Text="0x10010000" FontFamily="Cascadia Mono,Consolas"/>
+                    <Button Grid.Column="3" Content="Go" Margin="6,0,0,0" Click="MemoryGo_Click"/>
+                  </Grid>
+                  <DataGrid Grid.Row="1" Name="MemoryGrid" IsReadOnly="True" AutoGenerateColumns="False"
+                            GridLinesVisibility="All" FontFamily="Cascadia Mono,Consolas" SelectionMode="Single">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="115"/>
+                      <DataGridTextColumn Header="+0" Binding="{Binding W0}" Width="100"/>
+                      <DataGridTextColumn Header="+4" Binding="{Binding W4}" Width="100"/>
+                      <DataGridTextColumn Header="+8" Binding="{Binding W8}" Width="100"/>
+                      <DataGridTextColumn Header="+C" Binding="{Binding WC}" Width="100"/>
+                      <DataGridTextColumn Header="ASCII" Binding="{Binding Ascii}" Width="*"/>
+                    </DataGrid.Columns>
+                  </DataGrid>
                 </Grid>
               </Grid>
             </Border>

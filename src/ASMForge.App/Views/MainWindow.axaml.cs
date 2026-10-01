@@ -11,6 +11,7 @@ using AvaloniaEdit.Rendering;
 using ASMForge.Core.Assembly;
 using ASMForge.Core.Cpu;
 using ASMForge.Core.Execution;
+using ASMForge.Core.Memory;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
@@ -28,8 +29,47 @@ public partial class MainWindow : Window
     private CompletionWindow? _completionWindow;
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.7.2 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
-    private const string CsTemplate = """using System;\n\nnamespace ASMForgeProject;\n\ninternal static class Program\n{\n    // Assembly source is kept beside the C# code so ASMForge can route it\n    // through its simulated MIPS engine. Native host memory/registers are never touched.\n    private const string AssemblySource = \"\"\"\n.text\nmain:\n    li $t0, 5\n    li $t1, 6\n    add $t2, $t0, $t1\n    li $v0, 10\n    syscall\n\"\"\";\n\n    private static void Main()\n    {\n        // v0.6 prepares the interop template. The C# -> simulated MIPS runtime bridge\n        // will connect this source to ASMForge.Core in the next runtime layer.\n        Console.WriteLine(\"ASMForge C# + ASM project ready.\");\n    }\n}\n""";
+    private const string Sample = "# ASMForge v0.8 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string CsTemplate = """"
+using System;
+using ASMForge.Core.Execution;
+
+namespace ASMForgeProject;
+
+internal static class Program
+{
+    private const string AssemblySource = """
+.data
+message: .asciiz "Hello from simulated MIPS!\n"
+
+.text
+main:
+    la $a0, message
+    li $v0, 4
+    syscall
+
+    li $t0, 5
+    li $t1, 6
+    add $t2, $t0, $t1
+
+    li $v0, 10
+    syscall
+""";
+
+    private static void Main()
+    {
+        var mips = new ASMForgeRuntime();
+        mips.LoadAssembly(AssemblySource);
+        mips.Run();
+
+        Console.Write(mips.Output);
+        var t2 = mips.Registers["$t2"];
+        Console.WriteLine($"$t2 = {t2}");
+        Console.WriteLine($"PC = 0x{mips.PC:X8}");
+    }
+}
+"""";
+    private uint _memoryViewStart = MipsMemory.DataBase;
 
     public MainWindow()
     {
@@ -395,7 +435,7 @@ public partial class MainWindow : Window
     {
         var editor = ActiveEditor ?? throw new InvalidOperationException("No file is open.");
         if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
-            throw new InvalidOperationException("C# runtime execution is not implemented yet. The C# template is prepared for the upcoming ASMForge simulated-MIPS bridge.");
+            throw new InvalidOperationException("C# host code is not compiled by the ASM editor. The generated template now uses the public ASMForgeRuntime API; run it from a .NET project that references ASMForge.Core.");
 
         var source = editor.Text ?? string.Empty;
         _program = _assembler.Assemble(source);
@@ -481,7 +521,7 @@ public partial class MainWindow : Window
 
     private void Try(Action a) { try { a(); } catch (Exception ex) { ShowError(ex); } }
     private void ShowError(Exception ex) { DiagnosticLog.Error("UI operation failed", ex); Status.Text = "Error"; Messages.Text = ex.Message; OutputTabs.SelectedIndex = 0; RefreshDisplay(); }
-    private void RefreshDisplay() { if (RegistersList is null) return; var rows = new List<string>(); for (var i = 0; i < 32; i++) rows.Add($"{RegisterFile.Names[i],5}  {FormatRegister(_machine.Registers[i])}"); rows.Add($"   HI  {FormatRegister(_machine.Registers.HI)}"); rows.Add($"   LO  {FormatRegister(_machine.Registers.LO)}"); RegistersList.ItemsSource = rows; PcText.Text = $"PC  0x{_machine.PC:X8}"; Console.Text = _machine.ConsoleText ?? ""; RefreshTextSegment(); HighlightCurrentSourceLine(); }
+    private void RefreshDisplay() { if (RegistersList is null) return; var rows = new List<string>(); for (var i = 0; i < 32; i++) rows.Add($"{RegisterFile.Names[i],5}  {FormatRegister(_machine.Registers[i])}"); rows.Add($"   HI  {FormatRegister(_machine.Registers.HI)}"); rows.Add($"   LO  {FormatRegister(_machine.Registers.LO)}"); RegistersList.ItemsSource = rows; PcText.Text = $"PC  0x{_machine.PC:X8}"; Console.Text = _machine.ConsoleText ?? ""; RefreshTextSegment(); RefreshMemoryViewer(); HighlightCurrentSourceLine(); }
     private void RefreshTextSegment() { if (TextSegmentGrid is null) return; if (_program is null) { TextSegmentGrid.ItemsSource = Array.Empty<TextRow>(); return; } var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n'); var data = _program.Instructions.Select((x, i) => new TextRow($"0x{x.Address:X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList(); TextSegmentGrid.ItemsSource = data; var index = !_machine.Halted && _machine.InstructionIndex < data.Count ? _machine.InstructionIndex : -1; TextSegmentGrid.SelectedIndex = index; if (index >= 0) TextSegmentGrid.ScrollIntoView(data[index], null); }
     private void HighlightCurrentSourceLine()
     {
@@ -499,9 +539,76 @@ public partial class MainWindow : Window
         editor.TextArea.Caret.Offset = line.Offset;
         editor.ScrollToLine(lineNo);
     }
+    private void MemorySegment_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        if (MemorySegment is null || MemoryAddressBox is null) return;
+        _memoryViewStart = MemorySegment.SelectedIndex switch
+        {
+            0 => MipsMemory.DataBase,
+            1 => MipsMemory.HeapBase,
+            2 => StackWindowStart(),
+            _ => _memoryViewStart
+        };
+        MemoryAddressBox.Text = $"0x{_memoryViewStart:X8}";
+        RefreshMemoryViewer();
+    }
+
+    private void MemoryGo_Click(object? s, RoutedEventArgs e)
+    {
+        Try(() =>
+        {
+            var text = (MemoryAddressBox?.Text ?? string.Empty).Trim();
+            if (_program is not null && _program.Symbols.TryGetValue(text, out var symbolAddress))
+                _memoryViewStart = symbolAddress & 0xfffffff0u;
+            else if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                _memoryViewStart = Convert.ToUInt32(text[2..], 16) & 0xfffffff0u;
+            else
+                _memoryViewStart = Convert.ToUInt32(text) & 0xfffffff0u;
+
+            if (MemorySegment is not null) MemorySegment.SelectedIndex = 3;
+            if (MemoryAddressBox is not null) MemoryAddressBox.Text = $"0x{_memoryViewStart:X8}";
+            RefreshMemoryViewer();
+        });
+    }
+
+    private uint StackWindowStart()
+    {
+        var sp = unchecked((uint)_machine.Registers[29]);
+        if (sp == 0) sp = MipsMemory.StackTop;
+        var aligned = sp & 0xfffffff0u;
+        return aligned >= 0x80 ? aligned - 0x80u : 0u;
+    }
+
+    private void RefreshMemoryViewer()
+    {
+        if (MemoryGrid is null) return;
+        var rows = new List<MemoryRow>(16);
+        var start = _memoryViewStart & 0xfffffff0u;
+        for (var row = 0; row < 16; row++)
+        {
+            var address = unchecked(start + (uint)(row * 16));
+            var ascii = new char[16];
+            for (var i = 0; i < 16; i++)
+            {
+                var b = _machine.Memory.ReadByte(address + (uint)i);
+                ascii[i] = b is >= 32 and <= 126 ? (char)b : '.';
+            }
+
+            rows.Add(new MemoryRow(
+                $"0x{address:X8}",
+                $"0x{_machine.Memory.ReadWordUnsigned(address):X8}",
+                $"0x{_machine.Memory.ReadWordUnsigned(address + 4):X8}",
+                $"0x{_machine.Memory.ReadWordUnsigned(address + 8):X8}",
+                $"0x{_machine.Memory.ReadWordUnsigned(address + 12):X8}",
+                new string(ascii)));
+        }
+        MemoryGrid.ItemsSource = rows;
+    }
+
     private string FormatRegister(int value) { var mode = RegisterFormat?.SelectedIndex ?? 0; var u = unchecked((uint)value); return mode switch { 1 => value.ToString(), 2 => u.ToString(), 3 => Convert.ToString(u, 2).PadLeft(32, '0'), 4 => FormatAscii(u), _ => $"0x{u:X8}" }; }
     private static string FormatAscii(uint value) { var b = (byte)(value & 0xFF); return b switch { 0 => "'\\0'", 9 => "'\\t'", 10 => "'\\n'", 13 => "'\\r'", >= 32 and <= 126 => $"'{(char)b}'", _ => $"'\\x{b:X2}'" }; }
     private sealed record TextRow(string Address, string Code, string Basic, string Source);
+    private sealed record MemoryRow(string Address, string W0, string W4, string W8, string WC, string Ascii);
     private sealed class EditorDocument
     {
         public string? Path;

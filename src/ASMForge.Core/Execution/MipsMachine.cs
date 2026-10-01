@@ -263,7 +263,7 @@ public sealed class MipsMachine
             case 10: Halted = true; ExitCode = 0; break;
             case 11: ConsoleText += (char)(Registers[4] & 0xff); break;
             case 17: ExitCode = Registers[4]; Halted = true; break;
-            case 34: ConsoleText += $"{unchecked((uint)Registers[4]):X8}"; break;
+            case 34: ConsoleText += $"0x{unchecked((uint)Registers[4]):X8}"; break;
             case 35: ConsoleText += Convert.ToString(Registers[4], 2).PadLeft(32, '0'); break;
             case 36: ConsoleText += unchecked((uint)Registers[4]).ToString(CultureInfo.InvariantCulture); break;
             default: throw new NotSupportedException($"Syscall {Registers[2]} is not implemented yet.");
