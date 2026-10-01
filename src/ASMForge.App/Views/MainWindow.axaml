@@ -1,54 +1,30 @@
-<Window
-    xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    x:Class="ASMForge.App.Views.MainWindow"
-    Title="ASMForge v0.2"
-    Width="1250"
-    Height="800"
-    MinWidth="900"
-    MinHeight="600">
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.3" Width="1350" Height="850" MinWidth="950" MinHeight="650">
+  <Grid RowDefinitions="Auto,*,190" ColumnDefinitions="2*,1.15*">
+    <Border Grid.ColumnSpan="2" Padding="10" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Click="Assemble_Click">Assemble</Button><Button Click="Step_Click">Step</Button><Button Click="Run_Click">Run</Button><Button Click="Reset_Click">Reset</Button>
+          <TextBlock Name="Status" VerticalAlignment="Center" Margin="12,0,0,0" Text="Ready"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="Theme" VerticalAlignment="Center"/><ComboBox Name="ThemeMode" Width="105" SelectedIndex="0" SelectionChanged="ThemeMode_SelectionChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox>
+        </StackPanel>
+      </Grid>
+    </Border>
 
-    <Grid RowDefinitions="Auto,*,180" ColumnDefinitions="*,360">
-        <Border Grid.ColumnSpan="2" Padding="10" BorderThickness="0,0,0,1" BorderBrush="#555">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Click="Assemble_Click">Assemble</Button>
-                <Button Click="Step_Click">Step</Button>
-                <Button Click="Run_Click">Run</Button>
-                <Button Click="Reset_Click">Reset</Button>
-                <TextBlock Name="Status" VerticalAlignment="Center" Margin="12,0,0,0" Text="Ready"/>
-            </StackPanel>
-        </Border>
-
-        <Grid Grid.Row="1" Margin="8" RowDefinitions="Auto,*">
-            <TextBlock FontWeight="Bold" Text="Assembly Editor" Margin="0,0,0,6"/>
-            <TextBox Grid.Row="1" Name="Editor" AcceptsReturn="True" AcceptsTab="True"
-                     FontFamily="Cascadia Mono,Consolas" FontSize="15" TextWrapping="NoWrap"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
-        </Grid>
-
-        <Grid Grid.Row="1" Grid.Column="1" Margin="8" RowDefinitions="Auto,Auto,*">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock FontWeight="Bold" Text="Simulated Registers" VerticalAlignment="Center"/>
-                <ComboBox Grid.Column="1" Name="RegisterFormat" Width="145" SelectedIndex="0"
-                          SelectionChanged="RegisterFormat_SelectionChanged">
-                    <ComboBoxItem Content="Hex"/>
-                    <ComboBoxItem Content="Signed Decimal"/>
-                    <ComboBoxItem Content="Unsigned Decimal"/>
-                    <ComboBoxItem Content="Binary"/>
-                    <ComboBoxItem Content="ASCII"/>
-                </ComboBox>
-            </Grid>
-            <TextBlock Grid.Row="1" Name="PcText" Margin="0,6"/>
-            <ListBox Grid.Row="2" Name="RegistersList" FontFamily="Cascadia Mono,Consolas"/>
-        </Grid>
-
-        <Grid Grid.Row="2" Grid.ColumnSpan="2" Margin="8" RowDefinitions="Auto,*">
-            <TextBlock FontWeight="Bold" Text="Console / Diagnostics"/>
-            <TextBox Grid.Row="1" Name="Console" IsReadOnly="True" AcceptsReturn="True"
-                     FontFamily="Cascadia Mono,Consolas"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
-        </Grid>
+    <Grid Grid.Row="1" Margin="8" RowDefinitions="Auto,*,Auto,*">
+      <TextBlock FontWeight="Bold" Text="Assembly Source" Margin="0,0,0,6"/>
+      <TextBox Grid.Row="1" Name="Editor" AcceptsReturn="True" AcceptsTab="True" FontFamily="Cascadia Mono,Consolas" FontSize="15" TextWrapping="NoWrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+      <TextBlock Grid.Row="2" FontWeight="Bold" Text="Basic / Expanded Instructions" Margin="0,10,0,6"/>
+      <ListBox Grid.Row="3" Name="BasicList" FontFamily="Cascadia Mono,Consolas" MinHeight="130"/>
     </Grid>
+
+    <Grid Grid.Row="1" Grid.Column="1" Margin="8" RowDefinitions="Auto,Auto,*">
+      <Grid ColumnDefinitions="*,Auto"><TextBlock FontWeight="Bold" Text="Simulated Registers" VerticalAlignment="Center"/><ComboBox Grid.Column="1" Name="RegisterFormat" Width="155" SelectedIndex="0" SelectionChanged="RegisterFormat_SelectionChanged"><ComboBoxItem Content="Hex"/><ComboBoxItem Content="Signed Decimal"/><ComboBoxItem Content="Unsigned Decimal"/><ComboBoxItem Content="Binary"/><ComboBoxItem Content="ASCII"/></ComboBox></Grid>
+      <TextBlock Grid.Row="1" Name="PcText" Margin="0,6"/><ListBox Grid.Row="2" Name="RegistersList" FontFamily="Cascadia Mono,Consolas"/>
+    </Grid>
+
+    <Grid Grid.Row="2" Grid.ColumnSpan="2" Margin="8" RowDefinitions="Auto,*"><TextBlock FontWeight="Bold" Text="Console / Diagnostics"/><TextBox Grid.Row="1" Name="Console" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"/></Grid>
+  </Grid>
 </Window>
