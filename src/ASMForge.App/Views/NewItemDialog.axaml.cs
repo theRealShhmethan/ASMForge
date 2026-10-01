@@ -12,7 +12,7 @@ public partial class NewItemDialog : Window
     {
         if (NameBox is null) return;
         NameBox.Text = KindBox.SelectedIndex switch { 1 => "Program.cs", 2 => "MyProject", _ => "main.asm" };
-        HintText.Text = KindBox.SelectedIndex switch { 1 => "Creates a C# source file. C# execution support is planned for a future ASMForge version.", 2 => "Creates an ASMForge project folder with a project file and starter main.asm.", _ => "Creates a MIPS assembly source file." };
+        HintText.Text = KindBox.SelectedIndex switch { 1 => "Creates an interop-ready C# source file with an embedded MIPS assembly template for the upcoming ASMForge runtime bridge.", 2 => "Creates an ASMForge project folder with a project file and starter main.asm.", _ => "Creates a MIPS assembly source file." };
     }
     private async void Browse_Click(object? s, RoutedEventArgs e)
     {

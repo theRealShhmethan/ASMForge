@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.5" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
         KeyDown="Window_KeyDown">
   <Grid RowDefinitions="Auto,Auto,*,200">
     <Menu Grid.Row="0">
@@ -16,7 +16,9 @@
       <MenuItem Header="_Run">
         <MenuItem Header="_Assemble" Click="Assemble_Click"/><MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/><MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/><MenuItem Header="_Back" Click="Back_Click"/><MenuItem Header="_Reset" Click="Reset_Click"/>
       </MenuItem>
-      <MenuItem Header="_Settings"/><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
+      <MenuItem Header="_Settings">
+        <MenuItem Name="ShowLineNumbersMenu" Header="Show _Line Numbers" IsCheckable="True" IsChecked="True" Click="ShowLineNumbers_Click"/>
+      </MenuItem><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
     </Menu>
     <Border Grid.Row="1" Padding="8" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
       <Grid ColumnDefinitions="Auto,*,Auto">
