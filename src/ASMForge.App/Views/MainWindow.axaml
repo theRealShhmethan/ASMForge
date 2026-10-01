@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.2" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.3" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
         KeyDown="Window_KeyDown">
   <Grid RowDefinitions="Auto,Auto,*,200">
     <Menu Grid.Row="0">
@@ -38,9 +38,8 @@
           <Border BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}" Padding="5">
             <Grid RowDefinitions="Auto,*"><TextBlock FontWeight="Bold" Text="EXPLORER" Margin="5"/><ListBox Grid.Row="1" Name="ExplorerList" DoubleTapped="ExplorerList_DoubleTapped"/></Grid>
           </Border>
-          <Grid Grid.Column="1" RowDefinitions="Auto,*">
-            <TabControl Name="EditorTabs" Grid.Row="0" MinHeight="42" SelectionChanged="EditorTabs_SelectionChanged"/>
-            <ContentControl Name="EditorHost" Grid.Row="1" Margin="4,0,0,0"/>
+          <Grid Grid.Column="1">
+            <TabControl Name="EditorTabs" Margin="4,0,0,0" SelectionChanged="EditorTabs_SelectionChanged" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
           </Grid>
         </Grid>
       </TabItem>

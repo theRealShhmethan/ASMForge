@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     private readonly List<EditorDocument> _documents = new();
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.6.2 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.6.3 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """using System;\n\nnamespace ASMForgeProject;\n\ninternal static class Program\n{\n    // Assembly source is kept beside the C# code so ASMForge can route it\n    // through its simulated MIPS engine. Native host memory/registers are never touched.\n    private const string AssemblySource = \"\"\"\n.text\nmain:\n    li $t0, 5\n    li $t1, 6\n    add $t2, $t0, $t1\n    li $v0, 10\n    syscall\n\"\"\";\n\n    private static void Main()\n    {\n        // v0.6 prepares the interop template. The C# -> simulated MIPS runtime bridge\n        // will connect this source to ASMForge.Core in the next runtime layer.\n        Console.WriteLine(\"ASMForge C# + ASM project ready.\");\n    }\n}\n""";
 
     public MainWindow()
@@ -86,7 +86,7 @@ public partial class MainWindow : Window
         try { File.WriteAllText(path!, doc.Editor.Text ?? ""); doc.Path = path; doc.Name = Path.GetFileName(path); doc.Dirty = false; UpdateTabHeaders(); RefreshExplorer(); Status.Text = $"Saved {doc.Name}"; }
         catch (Exception ex) { ShowError(ex); }
     }
-    private void CloseFile_Click(object? s, RoutedEventArgs e) { var i = EditorTabs.SelectedIndex; if (i < 0) return; _documents.RemoveAt(i); EditorTabs.Items.RemoveAt(i); if (_documents.Count == 0) OpenDocument(null, "Untitled.asm", "", true); else { EditorTabs.SelectedIndex = Math.Min(i, _documents.Count - 1); EditorHost.Content = ActiveEditor; } }
+    private void CloseFile_Click(object? s, RoutedEventArgs e) { var i = EditorTabs.SelectedIndex; if (i < 0) return; _documents.RemoveAt(i); EditorTabs.Items.RemoveAt(i); if (_documents.Count == 0) OpenDocument(null, "Untitled.asm", "", true); else { EditorTabs.SelectedIndex = Math.Min(i, _documents.Count - 1); } }
 
     private void OpenFilePath(string path)
     {
@@ -100,7 +100,7 @@ public partial class MainWindow : Window
         editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => name, () => RequestedThemeVariant));
         editor.TextArea.KeyDown += (_, e) => HandleEditorIndent(editor, e);
         var doc = new EditorDocument(path, name, editor, dirty); editor.TextChanged += (_, _) => { doc.Dirty = true; UpdateTabHeaders(); _program = null; };
-        _documents.Add(doc); EditorTabs.Items.Add(new TabItem { Header = name }); EditorTabs.SelectedIndex = _documents.Count - 1; EditorHost.Content = editor; UpdateTabHeaders();
+        _documents.Add(doc); EditorTabs.Items.Add(new TabItem { Header = name, Content = editor }); EditorTabs.SelectedIndex = _documents.Count - 1; UpdateTabHeaders(); editor.Focus();
     }
     private static void HandleEditorIndent(TextEditor editor, KeyEventArgs e)
     {
@@ -121,7 +121,7 @@ public partial class MainWindow : Window
         finally { doc.EndUpdate(); }
         e.Handled = true;
     }
-    private void CloseAllDocuments() { _documents.Clear(); EditorTabs.Items.Clear(); EditorHost.Content = null; }
+    private void CloseAllDocuments() { _documents.Clear(); EditorTabs.Items.Clear(); }
     private void UpdateTabHeaders() { for (var i = 0; i < _documents.Count && i < EditorTabs.Items.Count; i++) if (EditorTabs.Items[i] is TabItem t) t.Header = _documents[i].Name + (_documents[i].Dirty ? " *" : ""); }
     private void RefreshExplorer()
     {
@@ -134,7 +134,7 @@ public partial class MainWindow : Window
         else items.Add("No project/folder open"); ExplorerList.ItemsSource = items;
     }
     private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel.StartsWith("▼") || rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
-    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; EditorHost.Content = ActiveEditor; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; }
+    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e) { _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked; foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers; _settings.Save(); }
 
     private void Assemble() { var editor = ActiveEditor ?? throw new InvalidOperationException("No file is open."); if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("C# runtime execution is not implemented yet. The v0.6 C# template is prepared for the upcoming ASMForge simulated-MIPS bridge."); _program = _assembler.Assemble(editor.Text ?? ""); _machine.Load(_program); _history.Clear(); Status.Text = $"Assembled {_program.Instructions.Count} basic instruction(s)"; Messages.Text = $"Assemble completed successfully.\n{_program.Instructions.Count} basic instruction(s) generated."; Console.Text = ""; OutputTabs.SelectedIndex = 1; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); }
