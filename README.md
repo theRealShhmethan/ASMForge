@@ -1,15 +1,15 @@
-# ASMForge v0.6.3
+# ASMForge v0.6.4 - Diagnostics Build
 
-Regression-fix release for the editor workspace.
+This build adds diagnostic logging so editor/layout failures can be inspected instead of guessed.
 
-## Fixed
-- Each document tab now directly owns its AvaloniaEdit `TextEditor`.
-- The editor is no longer hosted in a separate content area that could collapse to zero height.
-- Editors stretch to fill the document workspace.
-- Switching tabs switches the actual editor instance.
-- Ctrl+W remains supported.
-- Run I/O remains the default output tab.
-- Project Explorer remains filtered to ASM/S/C# source files.
-- Line-number setting and syntax coloring remain enabled.
+## Logs
+When run from Visual Studio with F5, look at **View > Output** and choose **Debug**.
+ASMForge messages start with `[ASMForge]`.
 
-Open `ASMForge.sln`, set `ASMForge.App` as the startup project, restore NuGet packages, and rebuild.
+A persistent log is also written to:
+
+`%LOCALAPPDATA%\\ASMForge\\Logs\\ASMForge-YYYY-MM-DD.log`
+
+Useful lines include editor creation, selected tab, editor bounds, visibility, parent/visual parent, text length, and line-number state.
+
+If the editor is blank, open/switch the affected file, wait a moment, then copy the `[ASMForge]` lines from Visual Studio Output or send the log file.

@@ -1,2 +1,21 @@
 using Avalonia;
-namespace ASMForge.App; internal static class Program { [STAThread] public static void Main(string[] args)=>BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); public static AppBuilder BuildAvaloniaApp()=>AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace(); }
+using System.Diagnostics;
+
+namespace ASMForge.App;
+
+internal static class Program
+{
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        DiagnosticLog.Info($"Application starting. .NET={Environment.Version}; OS={Environment.OSVersion}; BaseDir={AppContext.BaseDirectory}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => DiagnosticLog.Error("Unhandled AppDomain exception", e.ExceptionObject as Exception);
+        Trace.Listeners.Add(new TextWriterTraceListener(Console.Out));
+        try { BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); }
+        catch (Exception ex) { DiagnosticLog.Error("Fatal application exception", ex); throw; }
+        finally { Trace.Flush(); DiagnosticLog.Info("Application exiting"); }
+    }
+
+    public static AppBuilder BuildAvaloniaApp() =>
+        AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
+}
