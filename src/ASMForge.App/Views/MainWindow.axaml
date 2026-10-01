@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ASMForge.App.Views.MainWindow"
-        Title="ASMForge v0.8"
+        Title="ASMForge v0.8.1"
         Width="1450"
         Height="900"
         MinWidth="1080"
@@ -165,26 +165,36 @@
                            FontWeight="Bold"
                            Margin="6,3,6,6"/>
                 <Grid Grid.Row="1" RowDefinitions="Auto,*">
-                  <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="4,0,4,5">
+                  <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="4,0,4,5">
                     <ComboBox Name="MemorySegment" Width="125" SelectedIndex="0" SelectionChanged="MemorySegment_SelectionChanged">
                       <ComboBoxItem Content="Data"/>
                       <ComboBoxItem Content="Heap"/>
                       <ComboBoxItem Content="Stack"/>
                       <ComboBoxItem Content="Custom"/>
                     </ComboBox>
-                    <TextBlock Grid.Column="1" Text="Address" VerticalAlignment="Center" Margin="10,0,6,0"/>
-                    <TextBox Grid.Column="2" Name="MemoryAddressBox" Text="0x10010000" FontFamily="Cascadia Mono,Consolas"/>
-                    <Button Grid.Column="3" Content="Go" Margin="6,0,0,0" Click="MemoryGo_Click"/>
+                    <TextBlock Grid.Column="1" Text="Format" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <ComboBox Grid.Column="2" Name="MemoryFormat" Width="155" SelectedIndex="0" SelectionChanged="MemoryFormat_SelectionChanged">
+                      <ComboBoxItem Content="Hex"/>
+                      <ComboBoxItem Content="Signed Decimal"/>
+                      <ComboBoxItem Content="Unsigned Decimal"/>
+                      <ComboBoxItem Content="Binary"/>
+                      <ComboBoxItem Content="ASCII"/>
+                    </ComboBox>
+                    <TextBlock Grid.Column="3" Text="Address / Label" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox Grid.Column="4" Name="MemoryAddressBox" Text="0x10010000" FontFamily="Cascadia Mono,Consolas"/>
+                    <Button Grid.Column="5" Content="Go" Margin="6,0,0,0" Click="MemoryGo_Click"/>
                   </Grid>
                   <DataGrid Grid.Row="1" Name="MemoryGrid" IsReadOnly="True" AutoGenerateColumns="False"
+                            CanUserResizeColumns="True"
+                            HorizontalScrollBarVisibility="Auto"
                             GridLinesVisibility="All" FontFamily="Cascadia Mono,Consolas" SelectionMode="Single">
                     <DataGrid.Columns>
-                      <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="115"/>
-                      <DataGridTextColumn Header="+0" Binding="{Binding W0}" Width="100"/>
-                      <DataGridTextColumn Header="+4" Binding="{Binding W4}" Width="100"/>
-                      <DataGridTextColumn Header="+8" Binding="{Binding W8}" Width="100"/>
-                      <DataGridTextColumn Header="+C" Binding="{Binding WC}" Width="100"/>
-                      <DataGridTextColumn Header="ASCII" Binding="{Binding Ascii}" Width="*"/>
+                      <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="125" MinWidth="105" CanUserResize="True"/>
+                      <DataGridTextColumn Header="+0" Binding="{Binding W0}" Width="135" MinWidth="110" CanUserResize="True"/>
+                      <DataGridTextColumn Header="+4" Binding="{Binding W4}" Width="135" MinWidth="110" CanUserResize="True"/>
+                      <DataGridTextColumn Header="+8" Binding="{Binding W8}" Width="135" MinWidth="110" CanUserResize="True"/>
+                      <DataGridTextColumn Header="+C" Binding="{Binding WC}" Width="135" MinWidth="110" CanUserResize="True"/>
+                      <DataGridTextColumn Header="ASCII" Binding="{Binding Ascii}" Width="180" MinWidth="120" CanUserResize="True"/>
                     </DataGrid.Columns>
                   </DataGrid>
                 </Grid>

@@ -1,47 +1,89 @@
-# ASMForge v0.8
+# ASMForge v0.8.1
 
-ASMForge v0.8 continues the MARS-compatibility port while keeping the existing C#/Avalonia editor architecture.
+ASMForge v0.8.1 is a compatibility and workflow patch on top of v0.8.
 
-## v0.8 highlights
+## What changed in v0.8.1
 
-- Working runtime Memory Viewer backed by the same `MipsMemory` used by execution.
-- Data, Heap, Stack, and Custom memory views.
-- Custom memory jumps accept hexadecimal/decimal addresses or assembled symbol names.
-- Memory display refreshes after assemble, step, run, and reset.
-- Each memory row shows four 32-bit words plus a 16-byte ASCII preview.
-- Fixed MARS-style automatic data alignment so labels on `.half`, `.word`, `.float`, and `.double` point to the aligned address.
-- `.align 0` disables automatic numeric alignment until a new `.data`/`.kdata` segment, matching MARS behavior.
-- Fixed syscall 34 to print MARS-style `0x` plus eight hexadecimal digits.
-- Fixed New C# File generation so the file contains real newlines instead of literal `\n` sequences.
-- Added the public `ASMForgeRuntime` C# API in `ASMForge.Core`.
-- Added a runnable C# interoperability example under `examples/CSharpInterop`.
-- Included `examples/MemoryViewerTest.asm` for testing Data/Heap/Stack updates.
+### C# projects now run inside ASMForge
+- Added in-process Roslyn compilation using `Microsoft.CodeAnalysis.CSharp`.
+- Press **Run (F5)** on a `.cs` file to compile and execute it directly in ASMForge.
+- C# programs automatically receive a reference to `ASMForge.Core`, so the generated `ASMForgeRuntime` template works without creating a separate Visual Studio project.
+- `Console.Write` and `Console.WriteLine` output is captured into **Run I/O**.
+- Compiler and runtime errors are shown in **Messages** with file/line/column information when available.
+- All `.cs` files in an open ASMForge project are compiled together; loose `.cs` files run by themselves.
 
-## C# runtime API
+### Project Explorer fixes
+- New ASMForge projects now create both `main.asm` and `Program.cs`.
+- The new-file dialog defaults to the currently open project folder.
+- Creating a new `.asm` or `.cs` file refreshes Explorer immediately.
+- `Program.cs` and other C# files under the project folder are shown in Explorer and included in C# compilation.
 
-A host C# application that references `ASMForge.Core` can now do:
+### Memory Viewer improvements
+- Memory columns are user-resizable.
+- Wider minimum/default column widths prevent normal 32-bit values from being clipped.
+- Added memory value display modes:
+  - Hex
+  - Signed Decimal
+  - Unsigned Decimal
+  - Binary
+  - ASCII
+- The existing right-hand 16-byte ASCII preview remains visible in every mode.
+- Address/label navigation and Data/Heap/Stack/Custom segment switching remain supported.
+
+### Existing v0.8 fixes retained
+- MARS-style data auto-alignment for `.half`, `.word`, `.float`, and `.double`.
+- `.align 0` handling.
+- Syscall 34 prints `0x` plus eight hexadecimal digits.
+- Correct generated C# file line breaks.
+- Public `ASMForgeRuntime` API for loading/running/stepping/resetting simulated MIPS and inspecting registers/memory.
+
+## Generated C# example
 
 ```csharp
-var mips = new ASMForgeRuntime();
-mips.LoadAssembly(source);
-mips.Run();
-Console.WriteLine(mips.Registers["$t0"]);
-Console.WriteLine(mips.Memory.ReadWord(0x10010000));
+using System;
+using ASMForge.Core.Execution;
+
+namespace ASMForgeProject;
+
+internal static class Program
+{
+    private const string AssemblySource = """
+.data
+message: .asciiz "Hello from simulated MIPS!\n"
+
+.text
+main:
+    la $a0, message
+    li $v0, 4
+    syscall
+
+    li $t0, 5
+    li $t1, 6
+    add $t2, $t0, $t1
+
+    li $v0, 10
+    syscall
+""";
+
+    private static void Main()
+    {
+        var mips = new ASMForgeRuntime();
+        mips.LoadAssembly(AssemblySource);
+        mips.Run();
+
+        Console.Write(mips.Output);
+        Console.WriteLine($"$t2 = {mips.Registers["$t2"]}");
+    }
+}
 ```
 
-Available runtime state includes `PC`, `Output`, `ExitCode`, `IsHalted`, `IsRunning`, named/numbered registers, HI/LO, and simulated MIPS memory.
+Pressing **Run** on this file should produce:
 
-## Memory Viewer test
+```text
+Hello from simulated MIPS!
+$t2 = 11
+```
 
-Open `examples/MemoryViewerTest.asm`, assemble it, then step through it while viewing:
+## Build note
 
-- **Data**: starts at `0x10010000` and contains the declared values/string.
-- **Heap**: starts at `0x10040000`; the test writes `0x11223344` there after syscall 9.
-- **Stack**: follows `$sp`; the test allocates 16 bytes and writes decimal 99.
-- **Custom**: enter an address or a symbol such as `wordValue` and press **Go**.
-
-## Current scope
-
-The v0.8 core covers the integer/source-level subset already ported from MARS. Coprocessor 1, Coprocessor 0, exception/trap handling, full macro/include processing, all remaining syscalls, backstep state restoration, delayed branching, full machine-code encoding/decoding, and other advanced MARS facilities remain future work.
-
-The bundled `reference/Mars.jar` remains the behavioral reference for compatibility work.
+This source tree now has a NuGet dependency on `Microsoft.CodeAnalysis.CSharp` for the built-in C# compiler. Restore packages before building.

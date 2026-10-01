@@ -29,7 +29,7 @@ public partial class MainWindow : Window
     private CompletionWindow? _completionWindow;
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.8 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.8.1 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """"
 using System;
 using ASMForge.Core.Execution;
@@ -109,7 +109,7 @@ main:
 
     private async void New_Click(object? s, RoutedEventArgs e)
     {
-        var dialog = new NewItemDialog(); var ok = await dialog.ShowDialog<bool>(this);
+        var dialog = new NewItemDialog(_projectFolder); var ok = await dialog.ShowDialog<bool>(this);
         if (!ok || dialog.Result is null) return;
         try
         {
@@ -118,15 +118,27 @@ main:
             {
                 var folder = Path.Combine(r.Location, r.Name); Directory.CreateDirectory(folder);
                 File.WriteAllText(Path.Combine(folder, r.Name + ".asmforge"), $"{{\n  \"name\": \"{r.Name.Replace("\"", "")}\",\n  \"version\": 1\n}}\n");
-                var main = Path.Combine(folder, "main.asm"); if (!File.Exists(main)) File.WriteAllText(main, "# " + r.Name + "\n.text\nmain:\n    li $v0, 10\n    syscall\n");
-                _projectFolder = folder; CloseAllDocuments(); OpenFilePath(main); RefreshExplorer(); Status.Text = $"Created project {r.Name}";
+                var main = Path.Combine(folder, "main.asm");
+                if (!File.Exists(main))
+                    File.WriteAllText(main, "# " + r.Name + "\n.text\nmain:\n    li $v0, 10\n    syscall\n");
+                var programCs = Path.Combine(folder, "Program.cs");
+                if (!File.Exists(programCs))
+                    File.WriteAllText(programCs, CsTemplate);
+                _projectFolder = folder;
+                CloseAllDocuments();
+                OpenFilePath(main);
+                OpenFilePath(programCs);
+                RefreshExplorer();
+                Status.Text = $"Created project {r.Name}";
             }
             else
             {
                 var ext = r.Kind == 1 ? ".cs" : ".asm"; var name = r.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ? r.Name : r.Name + ext;
                 Directory.CreateDirectory(r.Location); var path = Path.Combine(r.Location, name);
                 if (!File.Exists(path)) File.WriteAllText(path, r.Kind == 1 ? CsTemplate : "# ASMForge assembly file\n.text\nmain:\n");
-                OpenFilePath(path); Status.Text = $"Created {name}";
+                OpenFilePath(path);
+                RefreshExplorer();
+                Status.Text = $"Created {name}";
             }
         }
         catch (Exception ex) { ShowError(ex); }
@@ -473,12 +485,130 @@ main:
         }
         return warnings;
     }
-    private void Assemble_Click(object? s, RoutedEventArgs e) => Try(Assemble);
-    private void Step_Click(object? s, RoutedEventArgs e) => Try(() => { if (_program is null) Assemble(); if (!_machine.Halted) _history.Push(_machine.InstructionIndex); _machine.Step(); Status.Text = _machine.Halted ? "Finished" : "Stepped"; RefreshDisplay(); });
-    private void Run_Click(object? s, RoutedEventArgs e) => Try(() => { if (_program is null) Assemble(); _machine.Run(); Status.Text = "Finished"; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); });
-    private void Reset_Click(object? s, RoutedEventArgs e) => Try(Assemble);
+    private void Assemble_Click(object? s, RoutedEventArgs e)
+    {
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            Status.Text = "C# files are compiled when you press Run";
+            Messages.Text = "C# source detected. Press Run (F5) to compile all C# files in the current project and execute its Main method.";
+            OutputTabs.SelectedIndex = 0;
+            return;
+        }
+        Try(Assemble);
+    }
+
+    private void Step_Click(object? s, RoutedEventArgs e)
+    {
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            Messages.Text = "Instruction stepping applies to MIPS assembly. Run the C# host, then use ASMForgeRuntime.Step() inside C# when host-controlled stepping is needed.";
+            OutputTabs.SelectedIndex = 0;
+            Status.Text = "C# host stepping is API-controlled";
+            return;
+        }
+        Try(() => { if (_program is null) Assemble(); if (!_machine.Halted) _history.Push(_machine.InstructionIndex); _machine.Step(); Status.Text = _machine.Halted ? "Finished" : "Stepped"; RefreshDisplay(); });
+    }
+
+    private async void Run_Click(object? s, RoutedEventArgs e)
+    {
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            await RunCSharpAsync();
+            return;
+        }
+        Try(() => { if (_program is null) Assemble(); _machine.Run(); Status.Text = "Finished"; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); });
+    }
+
+    private void Reset_Click(object? s, RoutedEventArgs e)
+    {
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            Console.Text = string.Empty;
+            Messages.Text = "C# host output cleared. Each Run performs a fresh compilation and execution.";
+            Status.Text = "C# reset";
+            return;
+        }
+        Try(Assemble);
+    }
     private void Back_Click(object? s, RoutedEventArgs e) { Messages.Text = "Backstep state restoration is not implemented yet."; Status.Text = "Backstep not yet implemented"; }
+
+    private async Task RunCSharpAsync()
+    {
+        try
+        {
+            var sources = CollectCSharpSources();
+            Status.Text = $"Compiling {sources.Count} C# file(s)...";
+            Messages.Text = string.Empty;
+            Console.Text = string.Empty;
+            OutputTabs.SelectedIndex = 1;
+
+            var result = await CSharpRunner.CompileAndRunAsync(sources);
+            Console.Text = result.Output;
+            Messages.Text = result.Diagnostics;
+            if (result.Success)
+            {
+                Status.Text = "C# finished";
+                OutputTabs.SelectedIndex = 1;
+            }
+            else
+            {
+                Status.Text = "C# compile/runtime error";
+                OutputTabs.SelectedIndex = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
+    }
+
+    private List<CSharpSource> CollectCSharpSources()
+    {
+        var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var active = ActiveDocument;
+        var activeIsProjectMember = active?.Path is not null && IsPathInsideProject(active.Path);
+
+        // A C# file inside an open project compiles with all C# project files.
+        // A loose C# file compiles by itself, even if another project is open.
+        if (activeIsProjectMember && _projectFolder is not null && Directory.Exists(_projectFolder))
+        {
+            foreach (var path in Directory.EnumerateFiles(_projectFolder, "*.cs", SearchOption.AllDirectories)
+                         .Where(p => !IsBuildOutputPath(p)))
+            {
+                sources[path] = File.ReadAllText(path);
+            }
+
+            foreach (var doc in _documents.Where(d => d.Path is not null &&
+                                                       d.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) &&
+                                                       IsPathInsideProject(d.Path)))
+            {
+                sources[doc.Path!] = doc.Editor.Text ?? string.Empty;
+            }
+        }
+        else if (active is not null && active.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            sources[active.Path ?? $"<memory>/{active.Name}"] = active.Editor.Text ?? string.Empty;
+        }
+
+        return sources.Select(kv => new CSharpSource(kv.Key, kv.Value)).ToList();
+    }
+
+    private bool IsPathInsideProject(string path)
+    {
+        if (_projectFolder is null) return false;
+        var root = Path.GetFullPath(_projectFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var candidate = Path.GetFullPath(path);
+        return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsBuildOutputPath(string path)
+    {
+        var parts = Path.GetFullPath(path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return parts.Any(p => p.Equals("bin", StringComparison.OrdinalIgnoreCase) || p.Equals("obj", StringComparison.OrdinalIgnoreCase));
+    }
+
     private void RegisterFormat_SelectionChanged(object? s, SelectionChangedEventArgs e) { if (RegistersList is not null) RefreshDisplay(); }
+    private void MemoryFormat_SelectionChanged(object? s, SelectionChangedEventArgs e) { if (MemoryGrid is not null) RefreshMemoryViewer(); }
     private void ThemeMode_SelectionChanged(object? s, SelectionChangedEventArgs e)
     {
         if (ThemeMode is null) return;
@@ -596,13 +726,37 @@ main:
 
             rows.Add(new MemoryRow(
                 $"0x{address:X8}",
-                $"0x{_machine.Memory.ReadWordUnsigned(address):X8}",
-                $"0x{_machine.Memory.ReadWordUnsigned(address + 4):X8}",
-                $"0x{_machine.Memory.ReadWordUnsigned(address + 8):X8}",
-                $"0x{_machine.Memory.ReadWordUnsigned(address + 12):X8}",
+                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address)),
+                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address + 4)),
+                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address + 8)),
+                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address + 12)),
                 new string(ascii)));
         }
         MemoryGrid.ItemsSource = rows;
+    }
+
+    private string FormatMemoryWord(uint value)
+    {
+        var mode = MemoryFormat?.SelectedIndex ?? 0;
+        return mode switch
+        {
+            1 => unchecked((int)value).ToString(),
+            2 => value.ToString(),
+            3 => Convert.ToString(value, 2).PadLeft(32, '0'),
+            4 => FormatWordAscii(value),
+            _ => $"0x{value:X8}"
+        };
+    }
+
+    private static string FormatWordAscii(uint value)
+    {
+        Span<char> chars = stackalloc char[4];
+        for (var i = 0; i < 4; i++)
+        {
+            var b = (byte)(value >> (i * 8));
+            chars[i] = b is >= 32 and <= 126 ? (char)b : '.';
+        }
+        return new string(chars);
     }
 
     private string FormatRegister(int value) { var mode = RegisterFormat?.SelectedIndex ?? 0; var u = unchecked((uint)value); return mode switch { 1 => value.ToString(), 2 => u.ToString(), 3 => Convert.ToString(u, 2).PadLeft(32, '0'), 4 => FormatAscii(u), _ => $"0x{u:X8}" }; }
