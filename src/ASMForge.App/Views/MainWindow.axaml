@@ -1,12 +1,28 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.4.1" Width="1350" Height="850" MinWidth="950" MinHeight="650">
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.5" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
+        KeyDown="Window_KeyDown">
   <Grid RowDefinitions="Auto,Auto,*,200">
     <Menu Grid.Row="0">
-      <MenuItem Header="_File"/><MenuItem Header="_Edit"/><MenuItem Header="_Run"/><MenuItem Header="_Settings"/><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
+      <MenuItem Header="_File">
+        <MenuItem Header="_New..." InputGesture="Ctrl+N" Click="New_Click"/>
+        <MenuItem Header="_Open File..." InputGesture="Ctrl+O" Click="Open_Click"/>
+        <MenuItem Header="Open _Project/Folder..." InputGesture="Ctrl+Shift+O" Click="OpenFolder_Click"/>
+        <Separator/>
+        <MenuItem Header="_Save" InputGesture="Ctrl+S" Click="Save_Click"/>
+        <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Click="SaveAs_Click"/>
+        <MenuItem Header="_Close File" InputGesture="Ctrl+W" Click="CloseFile_Click"/>
+      </MenuItem>
+      <MenuItem Header="_Edit"/>
+      <MenuItem Header="_Run">
+        <MenuItem Header="_Assemble" Click="Assemble_Click"/><MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/><MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/><MenuItem Header="_Back" Click="Back_Click"/><MenuItem Header="_Reset" Click="Reset_Click"/>
+      </MenuItem>
+      <MenuItem Header="_Settings"/><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
     </Menu>
     <Border Grid.Row="1" Padding="8" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Orientation="Horizontal" Spacing="7">
+          <Button Click="New_Click">New</Button><Button Click="Open_Click">Open</Button><Button Click="Save_Click">Save</Button>
+          <Border Width="1" Margin="4,0" Background="{DynamicResource ThemeBorderLowBrush}"/>
           <Button Click="Assemble_Click">Assemble</Button><Button Click="Run_Click">Run</Button><Button Click="Step_Click">Step</Button><Button Click="Back_Click">Back</Button><Button Click="Reset_Click">Reset</Button>
           <TextBlock Name="Status" VerticalAlignment="Center" Margin="10,0,0,0" Text="Ready"/>
         </StackPanel>
@@ -16,34 +32,25 @@
 
     <TabControl Grid.Row="2" Name="WorkspaceTabs" Margin="6">
       <TabItem Header="EDIT">
-        <Grid RowDefinitions="Auto,*">
-          <TextBlock Margin="5" FontWeight="Bold" Text="main.asm"/>
-          <TextBox Grid.Row="1" Name="Editor" AcceptsReturn="True" AcceptsTab="True" FontFamily="Cascadia Mono,Consolas" FontSize="15" TextWrapping="NoWrap" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+        <Grid ColumnDefinitions="230,*">
+          <Border BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}" Padding="5">
+            <Grid RowDefinitions="Auto,*"><TextBlock FontWeight="Bold" Text="EXPLORER" Margin="5"/><ListBox Grid.Row="1" Name="ExplorerList" DoubleTapped="ExplorerList_DoubleTapped"/></Grid>
+          </Border>
+          <Grid Grid.Column="1" RowDefinitions="*">
+            <TabControl Name="EditorTabs" SelectionChanged="EditorTabs_SelectionChanged"/>
+          </Grid>
         </Grid>
       </TabItem>
       <TabItem Header="EXECUTE">
         <Grid ColumnDefinitions="*,320">
           <TabControl Margin="3">
-            <TabItem Header="Text Segment">
-              <DataGrid Name="TextSegmentGrid" IsReadOnly="True" AutoGenerateColumns="False" GridLinesVisibility="All" FontFamily="Cascadia Mono,Consolas" SelectionMode="Single">
-                <DataGrid.Columns>
-                  <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="120"/><DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="120"/><DataGridTextColumn Header="Basic" Binding="{Binding Basic}" Width="2*"/><DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="2*"/>
-                </DataGrid.Columns>
-              </DataGrid>
-            </TabItem>
+            <TabItem Header="Text Segment"><DataGrid Name="TextSegmentGrid" IsReadOnly="True" AutoGenerateColumns="False" GridLinesVisibility="All" FontFamily="Cascadia Mono,Consolas" SelectionMode="Single"><DataGrid.Columns><DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="120"/><DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="120"/><DataGridTextColumn Header="Basic" Binding="{Binding Basic}" Width="2*"/><DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="2*"/></DataGrid.Columns></DataGrid></TabItem>
             <TabItem Header="Data Segment"><Grid><TextBlock Margin="12" Text="Data Segment viewer will use ASMForge simulated memory. MARS-compatible data directives are the next compatibility layer." TextWrapping="Wrap"/></Grid></TabItem>
           </TabControl>
-          <Grid Grid.Column="1" Margin="8,3,3,3" RowDefinitions="Auto,Auto,*">
-            <Grid ColumnDefinitions="*,Auto"><TextBlock FontWeight="Bold" Text="Registers" VerticalAlignment="Center"/><ComboBox Grid.Column="1" Name="RegisterFormat" Width="150" SelectedIndex="0" SelectionChanged="RegisterFormat_SelectionChanged"><ComboBoxItem Content="Hex"/><ComboBoxItem Content="Signed Decimal"/><ComboBoxItem Content="Unsigned Decimal"/><ComboBoxItem Content="Binary"/><ComboBoxItem Content="ASCII"/></ComboBox></Grid>
-            <TextBlock Grid.Row="1" Name="PcText" Margin="0,7"/><ListBox Grid.Row="2" Name="RegistersList" FontFamily="Cascadia Mono,Consolas"/>
-          </Grid>
+          <Grid Grid.Column="1" Margin="8,3,3,3" RowDefinitions="Auto,Auto,*"><Grid ColumnDefinitions="*,Auto"><TextBlock FontWeight="Bold" Text="Registers" VerticalAlignment="Center"/><ComboBox Grid.Column="1" Name="RegisterFormat" Width="150" SelectedIndex="0" SelectionChanged="RegisterFormat_SelectionChanged"><ComboBoxItem Content="Hex"/><ComboBoxItem Content="Signed Decimal"/><ComboBoxItem Content="Unsigned Decimal"/><ComboBoxItem Content="Binary"/><ComboBoxItem Content="ASCII"/></ComboBox></Grid><TextBlock Grid.Row="1" Name="PcText" Margin="0,7"/><ListBox Grid.Row="2" Name="RegistersList" FontFamily="Cascadia Mono,Consolas"/></Grid>
         </Grid>
       </TabItem>
     </TabControl>
-
-    <TabControl Grid.Row="3" Margin="6" Name="OutputTabs">
-      <TabItem Header="Messages"><TextBox Name="Messages" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem>
-      <TabItem Header="Run I/O"><TextBox Name="Console" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem>
-    </TabControl>
+    <TabControl Grid.Row="3" Margin="6" Name="OutputTabs"><TabItem Header="Messages"><TextBox Name="Messages" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem><TabItem Header="Run I/O"><TextBox Name="Console" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem></TabControl>
   </Grid>
 </Window>

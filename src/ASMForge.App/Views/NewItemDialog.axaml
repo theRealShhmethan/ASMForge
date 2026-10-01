@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ASMForge.App.Views.NewItemDialog" Title="Create New" Width="560" Height="340"
+        CanResize="False" WindowStartupLocation="CenterOwner">
+  <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnDefinitions="Auto,*">
+    <TextBlock Grid.ColumnSpan="2" FontSize="20" FontWeight="Bold" Text="Create New" Margin="0,0,0,18"/>
+    <TextBlock Grid.Row="1" Text="Type" VerticalAlignment="Center" Margin="0,0,14,10"/>
+    <ComboBox Grid.Row="1" Grid.Column="1" Name="KindBox" SelectedIndex="0" Margin="0,0,0,10" SelectionChanged="KindBox_SelectionChanged">
+      <ComboBoxItem Content="ASM File"/><ComboBoxItem Content="C# File"/><ComboBoxItem Content="Project"/>
+    </ComboBox>
+    <TextBlock Grid.Row="2" Text="Name" VerticalAlignment="Center" Margin="0,0,14,10"/>
+    <TextBox Grid.Row="2" Grid.Column="1" Name="NameBox" Text="main.asm" Margin="0,0,0,10"/>
+    <TextBlock Grid.Row="3" Text="Location" VerticalAlignment="Center" Margin="0,0,14,10"/>
+    <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+      <TextBox Name="LocationBox" Watermark="Choose a folder..."/>
+      <Button Grid.Column="1" Content="Browse..." Margin="8,0,0,0" Click="Browse_Click"/>
+    </Grid>
+    <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Name="HintText" Text="Creates a MIPS assembly source file." TextWrapping="Wrap" Opacity="0.75"/>
+    <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="Cancel_Click"/>
+      <Button Content="Create" IsDefault="True" Click="Create_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>
