@@ -1,18 +1,19 @@
-# ASMForge v0.3
+# ASMForge v0.4
 
-ASMForge is a modern learning-focused MIPS assembly simulator/IDE being built in C#/.NET with Avalonia.
+ASMForge is a C#/.NET + Avalonia learning-focused MIPS simulator inspired by the MARS workflow.
 
-## v0.3 additions
-- System, Light, and Dark themes (System is default).
-- Current source-line selection while stepping.
-- Basic/expanded instruction pane with PC addresses and current instruction selection.
-- Source-to-basic mapping retained by the assembler.
-- `rem` expands to `div` + `mfhi`; `move` expands to `addu`; small `li` expands to `addiu`.
-- HI/LO registers are displayed and `div`, `mfhi`, and `mflo` execute in the simulator.
-- Register display modes: Hex, Signed Decimal, Unsigned Decimal, Binary, ASCII.
+## v0.4 UI changes
+- MARS-style **EDIT** and **EXECUTE** workspaces instead of the v0.3 split workspace.
+- Assemble automatically switches from EDIT to EXECUTE.
+- EXECUTE contains a **Text Segment** table with Address, Code, Basic, and Source columns.
+- A **Data Segment** tab is reserved for the MARS-compatible memory/data implementation.
+- Registers remain visible alongside execution and support Hex, signed/unsigned decimal, binary, and ASCII display.
+- Bottom output area now has **Messages** and **Run I/O** tabs.
+- System / Light / Dark theme selector remains available.
+- Step follows the currently executing basic instruction and keeps source mapping.
+- Back button is present in the MARS-like toolbar; full machine-state backstep is intentionally not faked yet.
 
-## Safety
-All MIPS registers and memory are simulated data structures. Guest MIPS addresses are never treated as host-process memory addresses.
+## Current compatibility status
+This is still a compatibility work in progress, not full MARS parity. Unsupported behavior should be implemented and tested rather than silently approximated.
 
-## Compatibility direction
-The included `reference/Mars.jar` is the MARS compatibility reference. v0.3 is not full MARS parity yet; unsupported instructions report a diagnostic instead of silently behaving incorrectly.
+Open `ASMForge.sln`, set `ASMForge.App` as the startup project, restore NuGet packages, and run.
