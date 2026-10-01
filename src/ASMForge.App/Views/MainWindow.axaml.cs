@@ -13,7 +13,7 @@ public partial class MainWindow : Window
     private readonly MipsMachine _machine = new();
     private AssemblyProgram? _program;
     private readonly Stack<int> _history = new();
-    private const string Sample = "# ASMForge v0.4 sample\n# Assemble switches to the MARS-style Execute view.\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.4.1 sample\n# Assemble switches to the MARS-style Execute view.\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
 
     public MainWindow() { InitializeComponent(); Editor.Text = Sample; RefreshDisplay(); }
 

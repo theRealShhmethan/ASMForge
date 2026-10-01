@@ -1,4 +1,4 @@
-# ASMForge v0.4
+# ASMForge v0.4.1.1
 
 ASMForge is a C#/.NET + Avalonia learning-focused MIPS simulator inspired by the MARS workflow.
 
@@ -17,3 +17,10 @@ ASMForge is a C#/.NET + Avalonia learning-focused MIPS simulator inspired by the
 This is still a compatibility work in progress, not full MARS parity. Unsupported behavior should be implemented and tested rather than silently approximated.
 
 Open `ASMForge.sln`, set `ASMForge.App` as the startup project, restore NuGet packages, and run.
+
+
+## v0.4.1 build fix
+- Added the Avalonia.Controls.DataGrid package required by the Text Segment view.
+- Added the DataGrid Fluent theme styles.
+- Ensured ASMForge.App builds as a WinExe.
+- Disabled compiled bindings for the current code-behind-driven prototype UI.

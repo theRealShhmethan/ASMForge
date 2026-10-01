@@ -1,5 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.4" Width="1350" Height="850" MinWidth="950" MinHeight="650">
+        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.4.1" Width="1350" Height="850" MinWidth="950" MinHeight="650">
   <Grid RowDefinitions="Auto,Auto,*,200">
     <Menu Grid.Row="0">
       <MenuItem Header="_File"/><MenuItem Header="_Edit"/><MenuItem Header="_Run"/><MenuItem Header="_Settings"/><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
