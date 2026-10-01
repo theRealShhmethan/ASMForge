@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using AvaloniaEdit;
+using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
 using ASMForge.Core.Assembly;
@@ -24,9 +25,10 @@ public partial class MainWindow : Window
     private AssemblyProgram? _program;
     private readonly Stack<int> _history = new();
     private readonly List<EditorDocument> _documents = new();
+    private CompletionWindow? _completionWindow;
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.6.6 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.7.0 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """using System;\n\nnamespace ASMForgeProject;\n\ninternal static class Program\n{\n    // Assembly source is kept beside the C# code so ASMForge can route it\n    // through its simulated MIPS engine. Native host memory/registers are never touched.\n    private const string AssemblySource = \"\"\"\n.text\nmain:\n    li $t0, 5\n    li $t1, 6\n    add $t2, $t0, $t1\n    li $v0, 10\n    syscall\n\"\"\";\n\n    private static void Main()\n    {\n        // v0.6 prepares the interop template. The C# -> simulated MIPS runtime bridge\n        // will connect this source to ASMForge.Core in the next runtime layer.\n        Console.WriteLine(\"ASMForge C# + ASM project ready.\");\n    }\n}\n""";
 
     public MainWindow()
@@ -123,15 +125,162 @@ public partial class MainWindow : Window
     private void OpenDocument(string? path, string name, string text, bool dirty)
     {
         DiagnosticLog.Info($"Opening document: {name}; path={path ?? "<untitled>"}; chars={text.Length}");
-        var editor = new TextEditor { Text = text, ShowLineNumbers = _settings.ShowLineNumbers, FontFamily = new FontFamily("Cascadia Mono,Consolas"), FontSize = 15, WordWrap = false, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
-        editor.Options.ConvertTabsToSpaces = true; editor.Options.IndentationSize = 4;
+
+        var editor = new TextEditor
+        {
+            Text = text,
+            ShowLineNumbers = _settings.ShowLineNumbers,
+            FontFamily = new FontFamily("Cascadia Mono,Consolas"),
+            FontSize = 15,
+            WordWrap = false,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+        };
+
+        editor.Options.ConvertTabsToSpaces = true;
+        editor.Options.IndentationSize = 4;
+        editor.Options.HighlightCurrentLine = true;
+
         if (_settings.SyntaxHighlighting)
-            editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => name, () => RequestedThemeVariant));
+            editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => name, () => ActualThemeVariant));
+
         editor.TextArea.KeyDown += (_, e) => HandleEditorIndent(editor, e);
+        editor.TextArea.TextEntered += (_, e) => Editor_TextEntered(editor, name, e);
+        editor.TextArea.TextEntering += Editor_TextEntering;
+
+        var editorBorder = new Border
+        {
+            BorderThickness = new Avalonia.Thickness(1),
+            Padding = new Avalonia.Thickness(5),
+            Margin = new Avalonia.Thickness(2, 0, 2, 2),
+            Child = editor
+        };
+
+        ApplyEditorTheme(editor, editorBorder);
+
         DiagnosticLog.Info($"Editor created: {name}; syntax={_settings.SyntaxHighlighting}; transformers={editor.TextArea.TextView.LineTransformers.Count}; theme={RequestedThemeVariant}");
-        var doc = new EditorDocument(path, name, editor, dirty); editor.TextChanged += (_, _) => { doc.Dirty = true; UpdateTabHeaders(); _program = null; };
-        _documents.Add(doc); var tab = new TabItem { Header = name, Content = editor, HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch }; EditorTabs.Items.Add(tab); EditorTabs.SelectedIndex = _documents.Count - 1; UpdateTabHeaders(); editor.Focus(); DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
+
+        var doc = new EditorDocument(path, name, editor, editorBorder, dirty);
+        editor.TextChanged += (_, _) =>
+        {
+            doc.Dirty = true;
+            UpdateTabHeaders();
+            _program = null;
+        };
+
+        _documents.Add(doc);
+        var tab = new TabItem
+        {
+            Header = name,
+            Content = editorBorder,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+        };
+
+        EditorTabs.Items.Add(tab);
+        EditorTabs.SelectedIndex = _documents.Count - 1;
+        UpdateTabHeaders();
+        editor.Focus();
+
+        DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}");
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
     }
+
+    private void Editor_TextEntering(object? sender, TextInputEventArgs e)
+    {
+        if (_completionWindow is null || string.IsNullOrEmpty(e.Text))
+            return;
+
+        var ch = e.Text[0];
+        if (!char.IsLetterOrDigit(ch) && ch != '_' && ch != '$' && ch != '.')
+        {
+            _completionWindow.Close();
+            _completionWindow = null;
+        }
+    }
+
+    private void Editor_TextEntered(TextEditor editor, string name, TextInputEventArgs e)
+    {
+        if (name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(e.Text))
+            return;
+
+        var ch = e.Text[0];
+        if (!char.IsLetterOrDigit(ch) && ch != '_' && ch != '$' && ch != '.')
+            return;
+
+        ShowMipsCompletion(editor);
+    }
+
+    private void ShowMipsCompletion(TextEditor editor)
+    {
+        var prefix = GetCompletionPrefix(editor);
+        if (prefix.Length == 0)
+            return;
+
+        var suggestions = MipsCompletionCatalog.GetSuggestions(prefix, editor.Text ?? string.Empty);
+        if (suggestions.Count == 0)
+        {
+            _completionWindow?.Close();
+            _completionWindow = null;
+            return;
+        }
+
+        _completionWindow?.Close();
+        var window = new CompletionWindow(editor.TextArea);
+        _completionWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_completionWindow, window))
+                _completionWindow = null;
+        };
+
+        foreach (var suggestion in suggestions)
+            window.CompletionList.CompletionData.Add(suggestion);
+
+        window.Show();
+    }
+
+    private static string GetCompletionPrefix(TextEditor editor)
+    {
+        var document = editor.Document;
+        if (document is null)
+            return string.Empty;
+
+        var caret = Math.Clamp(editor.CaretOffset, 0, document.TextLength);
+        var start = caret;
+        while (start > 0)
+        {
+            var c = document.GetCharAt(start - 1);
+            if (!char.IsLetterOrDigit(c) && c != '_' && c != '$' && c != '.')
+                break;
+            start--;
+        }
+
+        return document.GetText(start, caret - start);
+    }
+
+    private void ApplyEditorTheme(TextEditor editor, Border border)
+    {
+        var dark = RequestedThemeVariant == ThemeVariant.Dark ||
+                   (RequestedThemeVariant == ThemeVariant.Default && ActualThemeVariant == ThemeVariant.Dark);
+
+        editor.Background = new SolidColorBrush(dark ? Color.FromRgb(18, 18, 18) : Color.FromRgb(255, 255, 255));
+        editor.Foreground = new SolidColorBrush(dark ? Color.FromRgb(225, 225, 225) : Color.FromRgb(30, 30, 30));
+        editor.LineNumbersForeground = new SolidColorBrush(dark ? Color.FromRgb(150, 150, 150) : Color.FromRgb(100, 100, 100));
+
+        // Softer selection colors than the default bright system-blue block.
+        editor.TextArea.SelectionBrush = new SolidColorBrush(dark ? Color.FromArgb(155, 58, 86, 118) : Color.FromArgb(170, 174, 207, 235));
+        editor.TextArea.SelectionForeground = new SolidColorBrush(dark ? Colors.White : Color.FromRgb(20, 20, 20));
+        editor.TextArea.Caret.CaretBrush = new SolidColorBrush(dark ? Colors.White : Colors.Black);
+
+        editor.TextArea.TextView.CurrentLineBackground = new SolidColorBrush(dark ? Color.FromArgb(75, 255, 255, 255) : Color.FromArgb(35, 0, 0, 0));
+        editor.TextArea.TextView.CurrentLineBorder = new Pen(new SolidColorBrush(dark ? Color.FromRgb(70, 70, 70) : Color.FromRgb(215, 215, 215)));
+
+        border.BorderBrush = new SolidColorBrush(dark ? Color.FromRgb(95, 95, 95) : Color.FromRgb(145, 145, 145));
+        border.Background = editor.Background;
+        editor.TextArea.TextView.Redraw();
+    }
+
     private static void HandleEditorIndent(TextEditor editor, KeyEventArgs e)
     {
         if (e.Key != Key.Tab) return;
@@ -155,15 +304,56 @@ public partial class MainWindow : Window
     private void UpdateTabHeaders() { for (var i = 0; i < _documents.Count && i < EditorTabs.Items.Count; i++) if (EditorTabs.Items[i] is TabItem t) t.Header = _documents[i].Name + (_documents[i].Dirty ? " *" : ""); }
     private void RefreshExplorer()
     {
-        if (ExplorerList is null) return; var items = new List<string>();
+        if (ExplorerList is null || ProjectNameText is null)
+            return;
+
+        var items = new List<string>();
         if (_projectFolder is not null && Directory.Exists(_projectFolder))
         {
-            items.Add("▼ " + Path.GetFileName(_projectFolder));
-            foreach (var f in Directory.EnumerateFiles(_projectFolder, "*", SearchOption.AllDirectories).Where(p => p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".s", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))) items.Add("   " + Path.GetRelativePath(_projectFolder, f));
+            ProjectNameText.Text = GetProjectDisplayName(_projectFolder);
+            foreach (var file in Directory.EnumerateFiles(_projectFolder, "*", SearchOption.AllDirectories)
+                         .Where(p => p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase) ||
+                                     p.EndsWith(".s", StringComparison.OrdinalIgnoreCase) ||
+                                     p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                         .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                items.Add(Path.GetRelativePath(_projectFolder, file));
+            }
         }
-        else items.Add("No project/folder open"); ExplorerList.ItemsSource = items;
+        else
+        {
+            ProjectNameText.Text = "No project open";
+            items.Add("No project/folder open");
+        }
+
+        ExplorerList.ItemsSource = items;
     }
-    private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel.StartsWith("▼") || rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
+
+    private static string GetProjectDisplayName(string folder)
+    {
+        try
+        {
+            var projectFile = Directory.EnumerateFiles(folder, "*.asmforge", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            if (projectFile is not null)
+            {
+                using var json = JsonDocument.Parse(File.ReadAllText(projectFile));
+                if (json.RootElement.TryGetProperty("name", out var nameElement))
+                {
+                    var configuredName = nameElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(configuredName))
+                        return configuredName;
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to the folder name if project metadata is unavailable or malformed.
+        }
+
+        return Path.GetFileName(folder);
+    }
+
+    private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
     private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e) { _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked; foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers; _settings.Save(); }
     private void SyntaxHighlighting_Click(object? s, RoutedEventArgs e)
@@ -173,7 +363,7 @@ public partial class MainWindow : Window
         {
             d.Editor.TextArea.TextView.LineTransformers.Clear();
             if (_settings.SyntaxHighlighting)
-                d.Editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => d.Name, () => RequestedThemeVariant));
+                d.Editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => d.Name, () => ActualThemeVariant));
             d.Editor.TextArea.TextView.Redraw();
         }
         _settings.Save();
@@ -187,17 +377,63 @@ public partial class MainWindow : Window
     private void Reset_Click(object? s, RoutedEventArgs e) => Try(Assemble);
     private void Back_Click(object? s, RoutedEventArgs e) { Messages.Text = "Backstep state restoration is not implemented yet."; Status.Text = "Backstep not yet implemented"; }
     private void RegisterFormat_SelectionChanged(object? s, SelectionChangedEventArgs e) { if (RegistersList is not null) RefreshDisplay(); }
-    private void ThemeMode_SelectionChanged(object? s, SelectionChangedEventArgs e) { if (ThemeMode is null) return; RequestedThemeVariant = ThemeMode.SelectedIndex switch { 1 => ThemeVariant.Light, 2 => ThemeVariant.Dark, _ => ThemeVariant.Default }; foreach (var d in _documents) d.Editor.TextArea.TextView.Redraw(); }
+    private void ThemeMode_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        if (ThemeMode is null) return;
+        RequestedThemeVariant = ThemeMode.SelectedIndex switch
+        {
+            1 => ThemeVariant.Light,
+            2 => ThemeVariant.Dark,
+            _ => ThemeVariant.Default
+        };
+
+        foreach (var d in _documents)
+        {
+            ApplyEditorTheme(d.Editor, d.EditorBorder);
+            d.Editor.TextArea.TextView.Redraw();
+        }
+    }
     private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
     private void Try(Action a) { try { a(); } catch (Exception ex) { ShowError(ex); } }
     private void ShowError(Exception ex) { DiagnosticLog.Error("UI operation failed", ex); Status.Text = "Error"; Messages.Text = ex.Message; OutputTabs.SelectedIndex = 0; RefreshDisplay(); }
     private void RefreshDisplay() { if (RegistersList is null) return; var rows = new List<string>(); for (var i = 0; i < 32; i++) rows.Add($"{RegisterFile.Names[i],5}  {FormatRegister(_machine.Registers[i])}"); rows.Add($"   HI  {FormatRegister(_machine.Registers.HI)}"); rows.Add($"   LO  {FormatRegister(_machine.Registers.LO)}"); RegistersList.ItemsSource = rows; PcText.Text = $"PC  0x{_machine.PC:X8}"; Console.Text = _machine.ConsoleText ?? ""; RefreshTextSegment(); HighlightCurrentSourceLine(); }
     private void RefreshTextSegment() { if (TextSegmentGrid is null) return; if (_program is null) { TextSegmentGrid.ItemsSource = Array.Empty<TextRow>(); return; } var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n'); var data = _program.Instructions.Select((x, i) => new TextRow($"0x{0x00400000u + (uint)(i * 4):X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList(); TextSegmentGrid.ItemsSource = data; var index = !_machine.Halted && _machine.InstructionIndex < data.Count ? _machine.InstructionIndex : -1; TextSegmentGrid.SelectedIndex = index; if (index >= 0) TextSegmentGrid.ScrollIntoView(data[index], null); }
-    private void HighlightCurrentSourceLine() { var editor = ActiveEditor; if (editor is null || _program is null || _machine.Halted || _machine.InstructionIndex >= _program.Instructions.Count || editor.Document is null) return; var lineNo = _program.Instructions[_machine.InstructionIndex].Line; if (lineNo < 1 || lineNo > editor.Document.LineCount) return; var line = editor.Document.GetLineByNumber(lineNo); editor.Select(line.Offset, line.Length); editor.ScrollToLine(lineNo); }
+    private void HighlightCurrentSourceLine()
+    {
+        var editor = ActiveEditor;
+        if (editor is null || _program is null || _machine.Halted ||
+            _machine.InstructionIndex >= _program.Instructions.Count || editor.Document is null)
+            return;
+
+        var lineNo = _program.Instructions[_machine.InstructionIndex].Line;
+        if (lineNo < 1 || lineNo > editor.Document.LineCount)
+            return;
+
+        var line = editor.Document.GetLineByNumber(lineNo);
+        editor.Select(line.Offset, 0);
+        editor.TextArea.Caret.Offset = line.Offset;
+        editor.ScrollToLine(lineNo);
+    }
     private string FormatRegister(int value) { var mode = RegisterFormat?.SelectedIndex ?? 0; var u = unchecked((uint)value); return mode switch { 1 => value.ToString(), 2 => u.ToString(), 3 => Convert.ToString(u, 2).PadLeft(32, '0'), 4 => FormatAscii(u), _ => $"0x{u:X8}" }; }
     private static string FormatAscii(uint value) { var b = (byte)(value & 0xFF); return b switch { 0 => "'\\0'", 9 => "'\\t'", 10 => "'\\n'", 13 => "'\\r'", >= 32 and <= 126 => $"'{(char)b}'", _ => $"'\\x{b:X2}'" }; }
     private sealed record TextRow(string Address, string Code, string Basic, string Source);
-    private sealed class EditorDocument { public string? Path; public string Name; public TextEditor Editor; public bool Dirty; public EditorDocument(string? path, string name, TextEditor editor, bool dirty) { Path = path; Name = name; Editor = editor; Dirty = dirty; } }
+    private sealed class EditorDocument
+    {
+        public string? Path;
+        public string Name;
+        public TextEditor Editor;
+        public Border EditorBorder;
+        public bool Dirty;
+
+        public EditorDocument(string? path, string name, TextEditor editor, Border editorBorder, bool dirty)
+        {
+            Path = path;
+            Name = name;
+            Editor = editor;
+            EditorBorder = editorBorder;
+            Dirty = dirty;
+        }
+    }
 }
 
 internal sealed class AppSettings

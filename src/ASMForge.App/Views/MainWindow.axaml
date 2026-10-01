@@ -1,7 +1,15 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="ASMForge.App.Views.MainWindow" Title="ASMForge v0.6.6" Width="1400" Height="880" MinWidth="1000" MinHeight="680"
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ASMForge.App.Views.MainWindow"
+        Title="ASMForge v0.7.0"
+        Width="1450"
+        Height="900"
+        MinWidth="1080"
+        MinHeight="700"
         KeyDown="Window_KeyDown">
-  <Grid RowDefinitions="Auto,Auto,*,200">
+
+  <Grid RowDefinitions="Auto,Auto,*">
+
     <Menu Grid.Row="0">
       <MenuItem Header="_File">
         <MenuItem Header="_New..." InputGesture="Ctrl+N" Click="New_Click"/>
@@ -12,48 +20,224 @@
         <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Click="SaveAs_Click"/>
         <MenuItem Header="_Close File" InputGesture="Ctrl+W" Click="CloseFile_Click"/>
       </MenuItem>
+
       <MenuItem Header="_Edit"/>
+
       <MenuItem Header="_Run">
-        <MenuItem Header="_Assemble" Click="Assemble_Click"/><MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/><MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/><MenuItem Header="_Back" Click="Back_Click"/><MenuItem Header="_Reset" Click="Reset_Click"/>
+        <MenuItem Header="_Assemble" Click="Assemble_Click"/>
+        <MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/>
+        <MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/>
+        <MenuItem Header="_Back" Click="Back_Click"/>
+        <MenuItem Header="_Reset" Click="Reset_Click"/>
       </MenuItem>
+
       <MenuItem Header="_Settings">
-        <MenuItem Name="ShowLineNumbersMenu" Header="Show _Line Numbers" ToggleType="CheckBox" IsChecked="True" Click="ShowLineNumbers_Click"/>
-        <MenuItem Name="SyntaxHighlightingMenu" Header="Syntax _Highlighting" ToggleType="CheckBox" IsChecked="True" Click="SyntaxHighlighting_Click"/>
-      </MenuItem><MenuItem Header="_Tools"/><MenuItem Header="_Help"/>
+        <MenuItem Name="ShowLineNumbersMenu"
+                  Header="Show _Line Numbers"
+                  ToggleType="CheckBox"
+                  IsChecked="True"
+                  Click="ShowLineNumbers_Click"/>
+        <MenuItem Name="SyntaxHighlightingMenu"
+                  Header="Syntax _Highlighting"
+                  ToggleType="CheckBox"
+                  IsChecked="True"
+                  Click="SyntaxHighlighting_Click"/>
+      </MenuItem>
+
+      <MenuItem Header="_Tools"/>
+      <MenuItem Header="_Help"/>
     </Menu>
-    <Border Grid.Row="1" Padding="8" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+
+    <Border Grid.Row="1"
+            Padding="8"
+            BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource ThemeBorderLowBrush}">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Orientation="Horizontal" Spacing="7">
-          <Button Click="New_Click">New</Button><Button Click="Open_Click">Open File</Button><Button Click="OpenFolder_Click">Open Project</Button><Button Click="Save_Click">Save</Button>
+          <Button Click="New_Click">New</Button>
+          <Button Click="Open_Click">Open File</Button>
+          <Button Click="OpenFolder_Click">Open Project</Button>
+          <Button Click="Save_Click">Save</Button>
           <Border Width="1" Margin="4,0" Background="{DynamicResource ThemeBorderLowBrush}"/>
-          <Button Click="Assemble_Click">Assemble</Button><Button Click="Run_Click">Run</Button><Button Click="Step_Click">Step</Button><Button Click="Back_Click">Back</Button><Button Click="Reset_Click">Reset</Button>
-          <TextBlock Name="Status" VerticalAlignment="Center" Margin="10,0,0,0" Text="Ready"/>
+          <Button Click="Assemble_Click">Assemble</Button>
+          <Button Click="Run_Click">Run</Button>
+          <Button Click="Step_Click">Step</Button>
+          <Button Click="Back_Click">Back</Button>
+          <Button Click="Reset_Click">Reset</Button>
+          <TextBlock Name="Status"
+                     VerticalAlignment="Center"
+                     Margin="10,0,0,0"
+                     Text="Ready"/>
         </StackPanel>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="7"><TextBlock Text="Theme" VerticalAlignment="Center"/><ComboBox Name="ThemeMode" Width="105" SelectedIndex="0" SelectionChanged="ThemeMode_SelectionChanged"><ComboBoxItem Content="System"/><ComboBoxItem Content="Light"/><ComboBoxItem Content="Dark"/></ComboBox></StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="7">
+          <TextBlock Text="Theme" VerticalAlignment="Center"/>
+          <ComboBox Name="ThemeMode"
+                    Width="105"
+                    SelectedIndex="0"
+                    SelectionChanged="ThemeMode_SelectionChanged">
+            <ComboBoxItem Content="System"/>
+            <ComboBoxItem Content="Light"/>
+            <ComboBoxItem Content="Dark"/>
+          </ComboBox>
+        </StackPanel>
       </Grid>
     </Border>
 
-    <TabControl Grid.Row="2" Name="WorkspaceTabs" Margin="6">
-      <TabItem Header="EDIT">
-        <Grid ColumnDefinitions="230,*">
-          <Border BorderThickness="0,0,1,0" BorderBrush="{DynamicResource ThemeBorderLowBrush}" Padding="5">
-            <Grid RowDefinitions="Auto,*"><TextBlock FontWeight="Bold" Text="EXPLORER" Margin="5"/><ListBox Grid.Row="1" Name="ExplorerList" DoubleTapped="ExplorerList_DoubleTapped"/></Grid>
-          </Border>
-          <Grid Grid.Column="1">
-            <TabControl Name="EditorTabs" Margin="4,0,0,0" SelectionChanged="EditorTabs_SelectionChanged" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+    <!-- MARS-like main work area: workspace/output on the left, registers on the right. -->
+    <Grid Grid.Row="2"
+          Margin="6"
+          ColumnDefinitions="*,330"
+          RowDefinitions="*,220">
+
+      <TabControl Grid.Row="0"
+                  Grid.Column="0"
+                  Name="WorkspaceTabs"
+                  Margin="0,0,6,6">
+
+        <TabItem Header="EDIT">
+          <Grid ColumnDefinitions="230,*">
+            <Border BorderThickness="1"
+                    BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                    Margin="0,0,6,0"
+                    Padding="5">
+              <Grid RowDefinitions="Auto,Auto,*">
+                <TextBlock FontWeight="Bold"
+                           Text="EXPLORER"
+                           Margin="5,5,5,2"/>
+
+                <TextBlock Grid.Row="1"
+                           Name="ProjectNameText"
+                           FontWeight="SemiBold"
+                           Margin="8,1,5,7"
+                           Text="No project open"
+                           TextTrimming="CharacterEllipsis"/>
+
+                <ListBox Grid.Row="2"
+                         Name="ExplorerList"
+                         DoubleTapped="ExplorerList_DoubleTapped"/>
+              </Grid>
+            </Border>
+
+            <Grid Grid.Column="1">
+              <TabControl Name="EditorTabs"
+                          SelectionChanged="EditorTabs_SelectionChanged"
+                          HorizontalContentAlignment="Stretch"
+                          VerticalContentAlignment="Stretch"/>
+            </Grid>
           </Grid>
-        </Grid>
-      </TabItem>
-      <TabItem Header="EXECUTE">
-        <Grid ColumnDefinitions="*,320">
-          <TabControl Margin="3">
-            <TabItem Header="Text Segment"><DataGrid Name="TextSegmentGrid" IsReadOnly="True" AutoGenerateColumns="False" GridLinesVisibility="All" FontFamily="Cascadia Mono,Consolas" SelectionMode="Single"><DataGrid.Columns><DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="120"/><DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="120"/><DataGridTextColumn Header="Basic" Binding="{Binding Basic}" Width="2*"/><DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="2*"/></DataGrid.Columns></DataGrid></TabItem>
-            <TabItem Header="Data Segment"><Grid><TextBlock Margin="12" Text="Data Segment viewer will use ASMForge simulated memory. MARS-compatible data directives are the next compatibility layer." TextWrapping="Wrap"/></Grid></TabItem>
-          </TabControl>
-          <Grid Grid.Column="1" Margin="8,3,3,3" RowDefinitions="Auto,Auto,*"><Grid ColumnDefinitions="*,Auto"><TextBlock FontWeight="Bold" Text="Registers" VerticalAlignment="Center"/><ComboBox Grid.Column="1" Name="RegisterFormat" Width="150" SelectedIndex="0" SelectionChanged="RegisterFormat_SelectionChanged"><ComboBoxItem Content="Hex"/><ComboBoxItem Content="Signed Decimal"/><ComboBoxItem Content="Unsigned Decimal"/><ComboBoxItem Content="Binary"/><ComboBoxItem Content="ASCII"/></ComboBox></Grid><TextBlock Grid.Row="1" Name="PcText" Margin="0,7"/><ListBox Grid.Row="2" Name="RegistersList" FontFamily="Cascadia Mono,Consolas"/></Grid>
-        </Grid>
-      </TabItem>
-    </TabControl>
-    <TabControl Grid.Row="3" Margin="6" Name="OutputTabs" SelectedIndex="1"><TabItem Header="Messages"><TextBox Name="Messages" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem><TabItem Header="Run I/O"><TextBox Name="Console" IsReadOnly="True" AcceptsReturn="True" FontFamily="Cascadia Mono,Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"/></TabItem></TabControl>
+        </TabItem>
+
+        <TabItem Header="EXECUTE">
+          <Grid RowDefinitions="1.15*,0.85*">
+            <Border BorderThickness="1"
+                    BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                    Padding="3"
+                    Margin="0,0,0,5">
+              <Grid RowDefinitions="Auto,*">
+                <TextBlock Text="Text Segment"
+                           FontWeight="Bold"
+                           Margin="6,3,6,6"/>
+                <DataGrid Grid.Row="1"
+                          Name="TextSegmentGrid"
+                          IsReadOnly="True"
+                          AutoGenerateColumns="False"
+                          GridLinesVisibility="All"
+                          FontFamily="Cascadia Mono,Consolas"
+                          SelectionMode="Single">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="120"/>
+                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="120"/>
+                    <DataGridTextColumn Header="Basic" Binding="{Binding Basic}" Width="2*"/>
+                    <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="2*"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </Border>
+
+            <Border Grid.Row="1"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                    Padding="3">
+              <Grid RowDefinitions="Auto,*">
+                <TextBlock Text="Data Segment"
+                           FontWeight="Bold"
+                           Margin="6,3,6,6"/>
+                <Grid Grid.Row="1">
+                  <TextBlock Margin="10"
+                             Text="MARS-style simulated Data Segment viewer is next. This pane is reserved for ASMForge memory beginning at 0x10010000."
+                             TextWrapping="Wrap"/>
+                </Grid>
+              </Grid>
+            </Border>
+          </Grid>
+        </TabItem>
+      </TabControl>
+
+      <TabControl Grid.Row="1"
+                  Grid.Column="0"
+                  Margin="0,0,6,0"
+                  Name="OutputTabs"
+                  SelectedIndex="1">
+        <TabItem Header="Messages">
+          <TextBox Name="Messages"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   FontFamily="Cascadia Mono,Consolas"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+        </TabItem>
+        <TabItem Header="Run I/O">
+          <TextBox Name="Console"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   FontFamily="Cascadia Mono,Consolas"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+        </TabItem>
+      </TabControl>
+
+      <TabControl Grid.Row="0"
+                  Grid.RowSpan="2"
+                  Grid.Column="1">
+        <TabItem Header="Registers">
+          <Grid Margin="8" RowDefinitions="Auto,Auto,*">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock FontWeight="Bold"
+                         Text="Simulated Registers"
+                         VerticalAlignment="Center"/>
+              <ComboBox Grid.Column="1"
+                        Name="RegisterFormat"
+                        Width="150"
+                        SelectedIndex="0"
+                        SelectionChanged="RegisterFormat_SelectionChanged">
+                <ComboBoxItem Content="Hex"/>
+                <ComboBoxItem Content="Signed Decimal"/>
+                <ComboBoxItem Content="Unsigned Decimal"/>
+                <ComboBoxItem Content="Binary"/>
+                <ComboBoxItem Content="ASCII"/>
+              </ComboBox>
+            </Grid>
+            <TextBlock Grid.Row="1"
+                       Name="PcText"
+                       Margin="0,7"/>
+            <ListBox Grid.Row="2"
+                     Name="RegistersList"
+                     FontFamily="Cascadia Mono,Consolas"/>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="Coproc 1">
+          <TextBlock Margin="10"
+                     Text="Floating-point coprocessor view will be added as MARS compatibility expands."
+                     TextWrapping="Wrap"/>
+        </TabItem>
+
+        <TabItem Header="Coproc 0">
+          <TextBlock Margin="10"
+                     Text="Exception/status coprocessor view will be added as MARS compatibility expands."
+                     TextWrapping="Wrap"/>
+        </TabItem>
+      </TabControl>
+
+    </Grid>
   </Grid>
 </Window>
