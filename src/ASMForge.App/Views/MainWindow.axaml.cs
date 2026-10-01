@@ -13,6 +13,7 @@ using ASMForge.Core.Execution;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
+using ASMForge.App;
 
 namespace ASMForge.App.Views;
 
@@ -25,7 +26,7 @@ public partial class MainWindow : Window
     private readonly List<EditorDocument> _documents = new();
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
-    private const string Sample = "# ASMForge v0.6.4 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
+    private const string Sample = "# ASMForge v0.6.5 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """using System;\n\nnamespace ASMForgeProject;\n\ninternal static class Program\n{\n    // Assembly source is kept beside the C# code so ASMForge can route it\n    // through its simulated MIPS engine. Native host memory/registers are never touched.\n    private const string AssemblySource = \"\"\"\n.text\nmain:\n    li $t0, 5\n    li $t1, 6\n    add $t2, $t0, $t1\n    li $v0, 10\n    syscall\n\"\"\";\n\n    private static void Main()\n    {\n        // v0.6 prepares the interop template. The C# -> simulated MIPS runtime bridge\n        // will connect this source to ASMForge.Core in the next runtime layer.\n        Console.WriteLine(\"ASMForge C# + ASM project ready.\");\n    }\n}\n""";
 
     public MainWindow()
@@ -55,7 +56,7 @@ public partial class MainWindow : Window
             var doc = ActiveDocument;
             if (doc is null) { DiagnosticLog.Warn("No active document/editor."); return; }
             var ed = doc.Editor;
-            DiagnosticLog.Info($"ActiveDocument={doc.Name}; TextLength={ed.Text?.Length ?? 0}; EditorBounds={ed.Bounds.Width:0.##}x{ed.Bounds.Height:0.##}; IsVisible={ed.IsVisible}; IsEffectivelyVisible={ed.IsEffectivelyVisible}; Parent={ed.Parent?.GetType().FullName ?? "<null>"}; VisualParent={ed.GetVisualParent()?.GetType().FullName ?? "<null>"}; LineNumbers={ed.ShowLineNumbers}");
+            DiagnosticLog.Info($"ActiveDocument={doc.Name}; TextLength={ed.Text?.Length ?? 0}; EditorBounds={ed.Bounds.Width:0.##}x{ed.Bounds.Height:0.##}; IsVisible={ed.IsVisible}; IsEffectivelyVisible={ed.IsEffectivelyVisible}; Parent={ed.Parent?.GetType().FullName ?? "<null>"}; LineNumbers={ed.ShowLineNumbers}");
         }
         catch (Exception ex) { DiagnosticLog.Error("Failed to collect editor diagnostics", ex); }
     }
@@ -126,7 +127,7 @@ public partial class MainWindow : Window
         editor.TextArea.TextView.LineTransformers.Add(new CodeColorizer(() => name, () => RequestedThemeVariant));
         editor.TextArea.KeyDown += (_, e) => HandleEditorIndent(editor, e);
         var doc = new EditorDocument(path, name, editor, dirty); editor.TextChanged += (_, _) => { doc.Dirty = true; UpdateTabHeaders(); _program = null; };
-        _documents.Add(doc); var tab = new TabItem { Header = name, Content = editor, HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch }; EditorTabs.Items.Add(tab); EditorTabs.SelectedIndex = _documents.Count - 1; UpdateTabHeaders(); editor.Focus(); DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}"); Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
+        _documents.Add(doc); var tab = new TabItem { Header = name, Content = editor, HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch }; EditorTabs.Items.Add(tab); EditorTabs.SelectedIndex = _documents.Count - 1; UpdateTabHeaders(); editor.Focus(); DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
     }
     private static void HandleEditorIndent(TextEditor editor, KeyEventArgs e)
     {
@@ -160,7 +161,7 @@ public partial class MainWindow : Window
         else items.Add("No project/folder open"); ExplorerList.ItemsSource = items;
     }
     private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel.StartsWith("▼") || rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
-    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
+    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e) { _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked; foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers; _settings.Save(); }
 
     private void Assemble() { var editor = ActiveEditor ?? throw new InvalidOperationException("No file is open."); if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("C# runtime execution is not implemented yet. The v0.6 C# template is prepared for the upcoming ASMForge simulated-MIPS bridge."); _program = _assembler.Assemble(editor.Text ?? ""); _machine.Load(_program); _history.Clear(); Status.Text = $"Assembled {_program.Instructions.Count} basic instruction(s)"; Messages.Text = $"Assemble completed successfully.\n{_program.Instructions.Count} basic instruction(s) generated."; Console.Text = ""; OutputTabs.SelectedIndex = 1; WorkspaceTabs.SelectedIndex = 1; RefreshDisplay(); }
@@ -265,32 +266,5 @@ internal sealed class CodeColorizer : DocumentColorizingTransformer
                 line.Offset + token.Index + token.Length,
                 element => element.TextRunProperties.SetForegroundBrush(brush));
         }
-    }
-}
-
-internal static class DiagnosticLog
-{
-    private static readonly object Gate = new();
-    public static readonly string LogDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ASMForge", "Logs");
-    public static readonly string LogPath = Path.Combine(LogDirectory, $"ASMForge-{DateTime.Now:yyyy-MM-dd}.log");
-
-    public static void Info(string message) => Write("INFO", message, null);
-    public static void Warn(string message) => Write("WARN", message, null);
-    public static void Error(string message, Exception? ex = null) => Write("ERROR", message, ex);
-
-    private static void Write(string level, string message, Exception? ex)
-    {
-        var line = $"[{DateTime.Now:HH:mm:ss.fff}] [ASMForge] [{level}] {message}" + (ex is null ? "" : Environment.NewLine + ex);
-        Debug.WriteLine(line);
-        Trace.WriteLine(line);
-        try
-        {
-            lock (Gate)
-            {
-                Directory.CreateDirectory(LogDirectory);
-                File.AppendAllText(LogPath, line + Environment.NewLine);
-            }
-        }
-        catch { }
     }
 }

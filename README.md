@@ -1,4 +1,4 @@
-# ASMForge v0.6.4 - Diagnostics Build
+# ASMForge v0.6.5 - Diagnostics Build
 
 This build adds diagnostic logging so editor/layout failures can be inspected instead of guessed.
 
