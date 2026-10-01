@@ -14,6 +14,7 @@ using ASMForge.Core.Cpu;
 using ASMForge.Core.Execution;
 using ASMForge.Core.Memory;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -30,7 +31,16 @@ public partial class MainWindow : Window
     private readonly List<EditorDocument> _documents = new();
     // Semi-transparent amber reads on both light and dark themes; changed values are also bolded.
     private static readonly IBrush ChangedBrush = new ImmutableSolidColorBrush(Color.FromArgb(110, 255, 196, 0));
-    private readonly RegisterRow[] _registerRows = Enumerable.Range(0, RegisterFile.Count + 2).Select(_ => new RegisterRow()).ToArray();
+    // Manual register/memory edits are highlighted in blue so they stand out from changes made by the program.
+    private static readonly IBrush EditedBrush = new ImmutableSolidColorBrush(Color.FromArgb(110, 80, 150, 255));
+    // Row i shows register change index i: 0-31, then HI (32) and LO (33). Commands are wired in the constructor.
+    private readonly RegisterRow[] _registerRows = Enumerable.Range(0, RegisterFile.Count + 2).Select(i => new RegisterRow(i)).ToArray();
+    // Memory view menu indices; Stack, $gp and $fp follow their register.
+    private const int DataSegment = 0, HeapSegment = 1, StackSegment = 2, GpSegment = 3, FpSegment = 4, CustomSegment = 5;
+    // What to do after the user enters input for a waiting read syscall.
+    private enum ResumeMode { Run, Step }
+    private ResumeMode _resumeMode = ResumeMode.Run;
+    private int? _resumeRunToLine;
     private readonly MemoryRow[] _memoryRows = Enumerable.Range(0, 16).Select(_ => new MemoryRow()).ToArray();
     private AssemblyProgram? _textSegmentProgram;
     private List<TextRow> _textRows = new();
@@ -101,7 +111,15 @@ main:
         SyntaxHighlightingMenu.IsChecked = _settings.SyntaxHighlighting;
         CompileAllCSharpMenu.IsChecked = _settings.CompileAllCSharpFiles;
         // ConsoleText is replaced (never mutated) by the simulator, so reading it from the UI thread is safe.
-        _runTimer.Tick += (_, _) => Console.Text = _machine.ConsoleText;
+        _runTimer.Tick += (_, _) => SetConsoleText(_machine.ConsoleText);
+        foreach (var row in _registerRows)
+        {
+            var index = row.Index;
+            row.EditCommand = new RelayCommand(() => EditRegister(index));
+            row.CopyNameCommand = new RelayCommand(() => CopyText(RegisterFile.NameOf(index)));
+            row.CopyValueCommand = new RelayCommand(() => CopyText(FormatRegister(_machine.Registers.GetByIndex(index))));
+            row.ShowInMemoryCommand = new RelayCommand(() => ShowInMemory(unchecked((uint)_machine.Registers.GetByIndex(index))));
+        }
         // Restore the last Hex / Signed / Unsigned / Binary / ASCII choice for each viewer.
         RegisterFormat.SelectedIndex = Math.Clamp(_settings.RegisterFormatIndex, 0, RegisterFormat.ItemCount - 1);
         MemoryFormat.SelectedIndex = Math.Clamp(_settings.MemoryFormatIndex, 0, MemoryFormat.ItemCount - 1);
@@ -682,8 +700,154 @@ main:
             Status.Text = "C# host stepping is API-controlled";
             return;
         }
-        Try(() => { if (_program is null) Assemble(); _machine.Step(); Status.Text = _machine.Halted ? "Finished" : "Stepped"; RefreshDisplay(); });
+        StepOnce();
     }
+
+    private void StepOnce() => Try(() =>
+    {
+        if (_program is null) Assemble();
+        _machine.Step();
+        RefreshDisplay();
+        if (_machine.WaitingForInput) PromptForInput(ResumeMode.Step);
+        else Status.Text = _machine.Halted ? "Finished" : "Stepped";
+    });
+
+    // ---- Console input for read syscalls (5, 8, 12) ----
+
+    private static string DescribeInput(InputKind? kind) => kind switch
+    {
+        InputKind.Integer => "an integer",
+        InputKind.String => "a line of text",
+        InputKind.Character => "a character",
+        _ => "input"
+    };
+
+    private void PromptForInput(ResumeMode mode, int? runToLine = null)
+    {
+        _resumeMode = mode;
+        _resumeRunToLine = runToLine;
+        OutputTabs.SelectedIndex = 1;
+        Status.Text = $"Waiting for {DescribeInput(_machine.PendingInputKind)}. Type it in Run I/O and press Enter.";
+        UpdateInputState();
+        InputBox.Focus();
+    }
+
+    private void UpdateInputState()
+    {
+        if (InputBox is null) return;
+        var waiting = _machine.WaitingForInput && !IsRunning;
+        InputBox.IsEnabled = waiting;
+        InputSendButton.IsEnabled = waiting;
+        InputPrompt.Text = waiting ? $"Enter {DescribeInput(_machine.PendingInputKind)}:" : "Input";
+    }
+
+    private void InputBox_KeyDown(object? s, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        SubmitInput();
+    }
+
+    private void InputSend_Click(object? s, RoutedEventArgs e) => SubmitInput();
+
+    // Sends the typed line to the waiting read syscall, then resumes the way execution was going (Run or Step).
+    private async void SubmitInput()
+    {
+        if (!_machine.WaitingForInput || IsRunning) return;
+        var text = InputBox.Text ?? string.Empty;
+        if (_machine.PendingInputKind == InputKind.Integer &&
+            !int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        {
+            Status.Text = $"\"{text}\" is not a valid integer. Enter a whole number such as 42 or -7.";
+            InputBox.SelectAll();
+            return;
+        }
+
+        _machine.ProvideInput(text);
+        InputBox.Text = string.Empty;
+        UpdateInputState();
+        if (_resumeMode == ResumeMode.Step) StepOnce();
+        else await RunMipsAsync(_resumeRunToLine);
+    }
+
+    private void SetConsoleText(string text)
+    {
+        if (Console.Text == text) return;
+        Console.Text = text;
+        Console.CaretIndex = text.Length; // keep the latest output in view
+    }
+
+    // ---- Register / memory editing and context-menu actions ----
+
+    private void RegistersList_DoubleTapped(object? s, TappedEventArgs e)
+    {
+        if ((e.Source as Avalonia.StyledElement)?.DataContext is RegisterRow row) EditRegister(row.Index);
+    }
+
+    private void MemoryGrid_DoubleTapped(object? s, TappedEventArgs e)
+    {
+        if ((e.Source as Avalonia.StyledElement)?.DataContext is MemoryCell cell) EditMemoryWord(cell.Address);
+    }
+
+    private async void EditRegister(int index)
+    {
+        if (BlockWhileRunning()) return;
+        var name = RegisterFile.NameOf(index);
+        if (index == 0) { Status.Text = "$zero is always 0 and cannot be edited"; return; }
+        var value = await EditValueDialog.ShowAsync(this, $"Edit {name}", unchecked((uint)_machine.Registers.GetByIndex(index)));
+        if (value is not { } newValue) return;
+        Try(() =>
+        {
+            _machine.EditRegister(index, unchecked((int)newValue));
+            RefreshDisplay();
+            Status.Text = $"{name} set to 0x{newValue:X8}. Step Back (F9) undoes the edit.";
+        });
+    }
+
+    private async void EditMemoryWord(uint address)
+    {
+        if (BlockWhileRunning()) return;
+        var value = await EditValueDialog.ShowAsync(this, $"Edit word at 0x{address:X8}", _machine.Memory.ReadWordUnsigned(address));
+        if (value is not { } newValue) return;
+        Try(() =>
+        {
+            _machine.EditMemoryWord(address, newValue);
+            RefreshDisplay();
+            Status.Text = $"Word at 0x{address:X8} set to 0x{newValue:X8}. Step Back (F9) undoes the edit.";
+        });
+    }
+
+    private async void CopyText(string text)
+    {
+        try
+        {
+            if (Clipboard is null) return;
+            await Clipboard.SetTextAsync(text);
+            Status.Text = $"Copied {(text.Length > 60 ? text[..60] + "…" : text)}";
+        }
+        catch (Exception ex) { DiagnosticLog.Error("Copy to clipboard failed", ex); }
+    }
+
+    // Shows the memory around an address (a register's value or a pointer stored in memory).
+    private void ShowInMemory(uint address)
+    {
+        _memoryViewStart = address & 0xfffffff0u;
+        if (MemorySegment is not null) MemorySegment.SelectedIndex = CustomSegment;
+        if (MemoryAddressBox is not null) MemoryAddressBox.Text = $"0x{_memoryViewStart:X8}";
+        WorkspaceTabs.SelectedIndex = 1;
+        RefreshMemoryViewer();
+        Status.Text = $"Showing memory at 0x{address:X8}";
+    }
+
+    private string MemoryRowText(uint rowStart)
+    {
+        var words = Enumerable.Range(0, 4).Select(i => FormatMemoryWord(_machine.Memory.ReadWordUnsigned(rowStart + (uint)(i * 4))));
+        return $"0x{rowStart:X8}  {string.Join("  ", words)}  {MemoryAscii(rowStart)}";
+    }
+
+    private string MemoryAscii(uint rowStart) => new(Enumerable.Range(0, 16)
+        .Select(i => _machine.Memory.ReadByte(rowStart + (uint)i))
+        .Select(b => b is >= 32 and <= 126 ? (char)b : '.').ToArray());
 
     private async void Run_Click(object? s, RoutedEventArgs e)
     {
@@ -813,6 +977,11 @@ main:
 
         WorkspaceTabs.SelectedIndex = 1;
         RefreshDisplay();
+        if (reason == StopReason.WaitingForInput)
+        {
+            PromptForInput(ResumeMode.Run, runToLine);
+            return;
+        }
         var where = CurrentSourceLineText();
         Status.Text = reason switch
         {
@@ -1063,7 +1232,8 @@ main:
         // Row index matches the register change index: 0-31, then HI (32) and LO (33).
         for (var i = 0; i < _registerRows.Length; i++) UpdateRegisterRow(_registerRows[i], i, previous);
         PcText.Text = $"PC  0x{_machine.PC:X8}";
-        Console.Text = _machine.ConsoleText ?? "";
+        SetConsoleText(_machine.ConsoleText ?? "");
+        UpdateInputState();
         if (BackButton is not null) BackButton.IsEnabled = _machine.CanStepBack;
         if (BackMenuItem is not null) BackMenuItem.IsEnabled = _machine.CanStepBack;
         RefreshTextSegment(); RefreshMemoryViewer(); HighlightCurrentSourceLine();
@@ -1074,12 +1244,20 @@ main:
         var name = RegisterFile.NameOf(index);
         var changed = previous.TryGetValue(index, out var old);
         row.Text = $"{name,5}  {FormatRegister(_machine.Registers.GetByIndex(index))}";
-        row.Background = changed ? ChangedBrush : null;
+        row.Background = changed ? ChangeBrush : null;
         row.Weight = changed ? FontWeight.Bold : FontWeight.Normal;
         row.Tip = changed ? $"{ChangeVerb()}; was {FormatRegister(old)}" : null;
     }
 
-    private string ChangeVerb() => _machine.LastStepWasUndo ? "Restored by Step Back" : "Written by the last step";
+    private string ChangeVerb() => (_machine.LastStep?.IsEdit == true, _machine.LastStepWasUndo) switch
+    {
+        (true, true) => "Edit undone by Step Back",
+        (true, false) => "Edited manually",
+        (false, true) => "Restored by Step Back",
+        _ => "Written by the last step"
+    };
+
+    private IBrush ChangeBrush => _machine.LastStep?.IsEdit == true ? EditedBrush : ChangedBrush;
 
     // Value each register held before the last step (or before the last Step Back).
     private Dictionary<int, int> PreviousRegisterValues()
@@ -1149,10 +1327,9 @@ main:
         if (MemorySegment is null || MemoryAddressBox is null) return;
         _memoryViewStart = MemorySegment.SelectedIndex switch
         {
-            0 => MipsMemory.DataBase,
-            1 => MipsMemory.HeapBase,
-            2 => StackWindowStart(),
-            _ => _memoryViewStart
+            DataSegment => MipsMemory.DataBase,
+            HeapSegment => MipsMemory.HeapBase,
+            _ => FollowedRegisterStart() ?? _memoryViewStart
         };
         MemoryAddressBox.Text = $"0x{_memoryViewStart:X8}";
         RefreshMemoryViewer();
@@ -1165,28 +1342,45 @@ main:
             var text = (MemoryAddressBox?.Text ?? string.Empty).Trim();
             if (_program is not null && _program.Symbols.TryGetValue(text, out var symbolAddress))
                 _memoryViewStart = symbolAddress & 0xfffffff0u;
+            else if (text.StartsWith('$'))
+                _memoryViewStart = unchecked((uint)_machine.Registers[RegisterFile.Parse(text)]) & 0xfffffff0u;
             else if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                 _memoryViewStart = Convert.ToUInt32(text[2..], 16) & 0xfffffff0u;
             else
                 _memoryViewStart = Convert.ToUInt32(text) & 0xfffffff0u;
 
-            if (MemorySegment is not null) MemorySegment.SelectedIndex = 3;
+            if (MemorySegment is not null) MemorySegment.SelectedIndex = CustomSegment;
             if (MemoryAddressBox is not null) MemoryAddressBox.Text = $"0x{_memoryViewStart:X8}";
             RefreshMemoryViewer();
         });
     }
 
-    private uint StackWindowStart()
+    // Start address for the Stack / $gp / $fp views, or null for the other views.
+    private uint? FollowedRegisterStart() => MemorySegment?.SelectedIndex switch
     {
-        var sp = unchecked((uint)_machine.Registers[29]);
-        if (sp == 0) sp = MipsMemory.StackTop;
-        var aligned = sp & 0xfffffff0u;
-        return aligned >= 0x80 ? aligned - 0x80u : 0u;
+        StackSegment => RegisterWindowStart(29, 0x80),
+        GpSegment => RegisterWindowStart(28, 0x40),
+        FpSegment => RegisterWindowStart(30, 0x40),
+        _ => null
+    };
+
+    // A window starting a few rows before the address in the register.
+    private uint RegisterWindowStart(int register, uint bytesBefore)
+    {
+        var value = unchecked((uint)_machine.Registers[register]);
+        if (value == 0) value = MipsMemory.StackTop;
+        var aligned = value & 0xfffffff0u;
+        return aligned >= bytesBefore ? aligned - bytesBefore : 0u;
     }
 
     private void RefreshMemoryViewer()
     {
         if (MemoryGrid is null || IsRunning) return;
+        if (FollowedRegisterStart() is { } follow && follow != _memoryViewStart)
+        {
+            _memoryViewStart = follow;
+            if (MemoryAddressBox is not null) MemoryAddressBox.Text = $"0x{follow:X8}";
+        }
         var previous = PreviousMemoryBytes();
         if (!ReferenceEquals(MemoryGrid.ItemsSource, _memoryRows)) MemoryGrid.ItemsSource = _memoryRows;
         var start = _memoryViewStart & 0xfffffff0u;
@@ -1222,9 +1416,18 @@ main:
             else oldByte = _machine.Memory.ReadByte(byteAddress);
             old |= (uint)oldByte << (i * 8);
         }
-        return changed
-            ? new MemoryCell(text, ChangedBrush, FontWeight.Bold, $"{ChangeVerb()}; was {FormatMemoryWord(old)}")
-            : new MemoryCell(text, null, FontWeight.Normal, null);
+        var rowStart = address & 0xfffffff0u;
+        return new MemoryCell(text,
+            changed ? ChangeBrush : null,
+            changed ? FontWeight.Bold : FontWeight.Normal,
+            changed ? $"{ChangeVerb()}; was {FormatMemoryWord(old)}" : null,
+            address,
+            new RelayCommand(() => EditMemoryWord(address)),
+            new RelayCommand(() => CopyText(FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address)))),
+            new RelayCommand(() => CopyText($"0x{address:X8}")),
+            new RelayCommand(() => CopyText(MemoryRowText(rowStart))),
+            new RelayCommand(() => CopyText(MemoryAscii(rowStart))),
+            new RelayCommand(() => ShowInMemory(_machine.Memory.ReadWordUnsigned(address))));
     }
 
     private string FormatMemoryWord(uint value)
@@ -1255,7 +1458,10 @@ main:
     private static string FormatAscii(uint value) { var b = (byte)(value & 0xFF); return b switch { 0 => "'\\0'", 9 => "'\\t'", 10 => "'\\n'", 13 => "'\\r'", >= 32 and <= 126 => $"'{(char)b}'", _ => $"'\\x{b:X2}'" }; }
     // CodeDetails is the field-by-field breakdown of the machine word, shown when hovering the Code cell.
     private sealed record TextRow(string Address, string Code, string CodeDetails, string Basic, string Source);
-    private sealed record MemoryCell(string Text, IBrush? Background, FontWeight Weight, string? Tip);
+    private sealed record MemoryCell(string Text, IBrush? Background, FontWeight Weight, string? Tip, uint Address = 0,
+        System.Windows.Input.ICommand? EditCommand = null, System.Windows.Input.ICommand? CopyValueCommand = null,
+        System.Windows.Input.ICommand? CopyAddressCommand = null, System.Windows.Input.ICommand? CopyRowCommand = null,
+        System.Windows.Input.ICommand? CopyAsciiCommand = null, System.Windows.Input.ICommand? FollowPointerCommand = null);
 
     // Register and memory rows are created once and updated in place (with change notifications)
     // so the lists keep their scroll position and selection while stepping.
@@ -1273,6 +1479,12 @@ main:
 
     private sealed class RegisterRow : BindableRow
     {
+        public RegisterRow(int index) => Index = index;
+        public int Index { get; }
+        public System.Windows.Input.ICommand? EditCommand { get; set; }
+        public System.Windows.Input.ICommand? CopyNameCommand { get; set; }
+        public System.Windows.Input.ICommand? CopyValueCommand { get; set; }
+        public System.Windows.Input.ICommand? ShowInMemoryCommand { get; set; }
         private string _text = "";
         private IBrush? _background;
         private FontWeight _weight = FontWeight.Normal;

@@ -10,9 +10,10 @@ public readonly record struct RegisterChange(int Register, int OldValue, int New
 public readonly record struct MemoryChange(uint Address, byte OldValue, byte NewValue);
 
 /// <summary>
-/// Everything one executed instruction changed. Used for changed-value highlighting
-/// and for restoring the previous machine state when stepping backwards.
-/// Changes are listed in the order they were written.
+/// Everything one executed instruction (or one manual register/memory edit) changed. Used for
+/// changed-value highlighting and for restoring the previous machine state when stepping backwards.
+/// Changes are listed in the order they were written. InputPosition* bracket the console input a
+/// read syscall consumed; HaltedBefore is the halt state to restore; IsEdit marks manual edits.
 /// </summary>
 public sealed record StepRecord(
     uint Pc,
@@ -24,7 +25,11 @@ public sealed record StepRecord(
     uint HeapBreakAfter,
     int ConsoleLengthBefore,
     int ExitCodeBefore,
-    bool Faulted);
+    bool Faulted,
+    int InputPositionBefore = 0,
+    int InputPositionAfter = 0,
+    bool HaltedBefore = false,
+    bool IsEdit = false);
 
 /// <summary>Collects writes while a single instruction executes.</summary>
 internal sealed class StepJournal

@@ -1,8 +1,8 @@
 # ASMForge — Full Development Roadmap
 
-> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.10.1** on 2026-10-01 (see CHANGELOG.md).  
+> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.11.0** on 2026-10-01 (see CHANGELOG.md).  
 > `[x]` means the feature is directly present in the source; `[~]` means it exists in partial form but does not yet satisfy the full roadmap item.  
-> `[T]` items were implemented in v0.9–v0.10.1 and are awaiting a final confirmation pass before being marked `[x]`.
+> `[T]` marks items implemented but not yet confirmed; they become `[x]` after a confirmation pass.
 
 
 > A long-term development plan for turning ASMForge into a polished, teacher-ready MIPS assembly IDE, simulator, debugger, and C# interoperability environment.
@@ -96,12 +96,12 @@ This roadmap begins from that baseline.
 
 > Written without compiling (build not yet run). Items below are `[T]` until `dotnet build` / `dotnet test` pass.
 
-- [T] `MipsMachine` records a `StepRecord` per step: register/HI/LO writes, memory byte writes, PC, heap break, console length, exit code, fault flag
-- [T] `MipsMachine.StepBack()` / `ASMForgeRuntime.StepBack()` with bounded history (`HistoryLimit`, default 5000)
-- [T] Faulting steps are recorded, so Step Back recovers from runtime errors
-- [T] Register and memory viewers highlight values written by the last step, with previous value on hover
-- [T] Back button / menu item restore state and are disabled when no history exists
-- [T] `tests/ASMForge.Core.Tests/BackstepTests.cs`
+- [x] `MipsMachine` records a `StepRecord` per step: register/HI/LO writes, memory byte writes, PC, heap break, console length, exit code, fault flag
+- [x] `MipsMachine.StepBack()` / `ASMForgeRuntime.StepBack()` with bounded history (`HistoryLimit`, default 5000)
+- [x] Faulting steps are recorded, so Step Back recovers from runtime errors
+- [x] Register and memory viewers highlight values written by the last step, with previous value on hover
+- [x] Back button / menu item restore state and are disabled when no history exists
+- [x] `tests/ASMForge.Core.Tests/BackstepTests.cs`
 
 ---
 
@@ -113,7 +113,7 @@ Use these markers while working through the roadmap:
 - [~] In progress
 - [x] Complete
 - [!] Blocked / bug found
-- [T] Needs testing
+- [x] Needs testing
 - [D] Needs documentation
 - [S] Stretch goal
 
@@ -136,7 +136,7 @@ Make the features that already exist dependable before expanding the application
 - [ ] Verify portable build if supported
 - [ ] Verify application launches with no missing dependencies
 - [x] Add a version string visible in the application
-- [T] Add About dialog showing version/build information
+- [x] Add About dialog showing version/build information
 
 ## 1.2 Crash Prevention
 
@@ -144,7 +144,7 @@ Make the features that already exist dependable before expanding the application
 - [ ] Prevent crashes when closing tabs
 - [ ] Prevent crashes when opening malformed files
 - [ ] Prevent crashes when the active editor has no document
-- [T] Prevent crashes when simulator is reset mid-run *(Reset/Step/Assemble blocked while running)*
+- [x] Prevent crashes when simulator is reset mid-run *(Reset/Step/Assemble blocked while running)*
 - [ ] Prevent crashes when memory viewer is on an invalid address
 - [ ] Prevent crashes when register values are edited
 - [ ] Prevent crashes when project paths no longer exist
@@ -181,10 +181,10 @@ Create automated tests for:
 - [ ] heap allocation
 - [ ] stack behavior
 - [ ] syscall output
-- [T] pseudo-instruction expansion
+- [x] pseudo-instruction expansion
 - [ ] reset behavior
 - [ ] step behavior
-- [T] backstep behavior
+- [x] backstep behavior
 - [ ] C# runtime bridge
 
 ## 1.4 Test Suite Organization
@@ -259,10 +259,10 @@ ASCII:
 - [x] Go to hexadecimal address
 - [x] Go to decimal address
 - [x] Go to label
-- [ ] Go to `$sp`
-- [ ] Go to `$gp`
-- [ ] Go to `$fp`
-- [ ] Go to selected register address
+- [x] Go to `$sp`
+- [x] Go to `$gp`
+- [x] Go to `$fp`
+- [x] Go to selected register address
 - [x] Data shortcut
 - [x] Heap shortcut
 - [x] Stack shortcut
@@ -270,35 +270,35 @@ ASCII:
 
 ## 2.4 Live Debugging Feedback
 
-- [T] Highlight memory modified by the last instruction
-- [T] Highlight byte writes
-- [T] Highlight halfword writes
-- [T] Highlight word writes
-- [T] Clear highlight on next step
-- [T] Preserve current viewport during stepping
-- [ ] Auto-follow `$sp` option
+- [x] Highlight memory modified by the last instruction
+- [x] Highlight byte writes
+- [x] Highlight halfword writes
+- [x] Highlight word writes
+- [x] Clear highlight on next step
+- [x] Preserve current viewport during stepping
+- [x] Auto-follow `$sp` option *(also $gp and $fp views)*
 - [ ] Auto-follow heap option
 
 ## 2.5 Memory Editing
 
-- [ ] Double-click word to edit
-- [ ] Hex input
-- [ ] Decimal input
-- [ ] Binary input
-- [ ] Validate values
+- [x] Double-click word to edit
+- [x] Hex input
+- [x] Decimal input
+- [x] Binary input
+- [x] Validate values
 - [ ] Prevent edits outside valid memory if appropriate
 - [ ] Show confirmation for dangerous edits
-- [ ] Make memory edits participate in backstep history
+- [x] Make memory edits participate in backstep history
 
 ## 2.6 Memory Context Menu
 
-- [ ] Copy address
-- [ ] Copy value
-- [ ] Copy row
-- [ ] Copy ASCII
-- [ ] Go to address
+- [x] Copy address
+- [x] Copy value
+- [x] Copy row
+- [x] Copy ASCII
+- [x] Go to address *(Follow Pointer, and Show Address in Memory on registers)*
 - [ ] Add watch
-- [ ] Edit value
+- [x] Edit value
 - [ ] Fill memory
 - [S] Save region to file
 
@@ -339,23 +339,23 @@ Display groups for:
 
 ## 3.3 Debug Feedback
 
-- [T] Highlight registers changed by last step
-- [ ] Different highlight for manually edited register
-- [T] Show previous value on hover
-- [ ] Copy register name
-- [ ] Copy register value
-- [ ] Right-click → Go to address in memory
+- [x] Highlight registers changed by last step
+- [x] Different highlight for manually edited register
+- [x] Show previous value on hover
+- [x] Copy register name
+- [x] Copy register value
+- [x] Right-click → Go to address in memory
 - [ ] Register search/filter
 
 ## 3.4 Register Editing
 
-- [ ] Edit register values
-- [ ] Block modification of `$zero`
-- [ ] Support hex entry
-- [ ] Support signed decimal entry
-- [ ] Support unsigned decimal entry
-- [ ] Support binary entry
-- [ ] Include register edits in backstep state
+- [x] Edit register values
+- [x] Block modification of `$zero`
+- [x] Support hex entry
+- [x] Support signed decimal entry
+- [x] Support unsigned decimal entry
+- [x] Support binary entry
+- [x] Include register edits in backstep state
 
 ---
 
@@ -377,20 +377,20 @@ Address       Code         Basic
 
 Tasks:
 
-- [T] Encode R-type instructions
-- [T] Encode I-type instructions
-- [T] Encode J-type instructions
-- [T] Expand pseudo-instructions into MARS-identical basic instructions (prerequisite for encoding)
-- [T] Encode pseudo-instruction expansions
-- [T] Display generated binary *(Code cell tooltip)*
-- [T] Display generated hexadecimal
-- [T] Verify encoding against MARS *(unit tests use standard MIPS32 encodings; spot-check in MARS)*
+- [x] Encode R-type instructions
+- [x] Encode I-type instructions
+- [x] Encode J-type instructions
+- [x] Expand pseudo-instructions into MARS-identical basic instructions (prerequisite for encoding)
+- [x] Encode pseudo-instruction expansions
+- [x] Display generated binary *(Code cell tooltip)*
+- [x] Display generated hexadecimal
+- [x] Verify encoding against MARS *(unit tests use standard MIPS32 encodings; spot-check in MARS)*
 
 ## 4.2 Source Mapping
 
 - [x] Preserve original source line
 - [x] Show expanded basic instruction
-- [T] Show machine code
+- [x] Show machine code
 - [x] Show address
 - [ ] Allow clicking row to jump to editor
 - [ ] Allow clicking source to highlight corresponding expanded rows
@@ -408,15 +408,15 @@ Tasks:
 
 On hover or selection show:
 
-- [T] opcode
-- [T] funct field
-- [T] rs
-- [T] rt
-- [T] rd
-- [T] shamt
-- [T] immediate
-- [T] target
-- [T] 32-bit binary representation
+- [x] opcode
+- [x] funct field
+- [x] rs
+- [x] rt
+- [x] rd
+- [x] shamt
+- [x] immediate
+- [x] target
+- [x] 32-bit binary representation
 
 ---
 
@@ -428,15 +428,15 @@ Make ASMForge feel like a real debugger.
 
 ## 5.1 Breakpoints
 
-- [T] Click gutter to add breakpoint
-- [T] Click again to remove
-- [T] Show breakpoint icon
-- [T] Persist breakpoints while project is open *(while the file stays open; not saved across restarts yet)*
-- [T] Run until breakpoint
-- [T] Skip invalid breakpoint lines
+- [x] Click gutter to add breakpoint
+- [x] Click again to remove
+- [x] Show breakpoint icon
+- [x] Persist breakpoints while project is open *(while the file stays open; not saved across restarts yet)*
+- [x] Run until breakpoint
+- [x] Skip invalid breakpoint lines
 - [ ] Breakpoint list window
 - [ ] Enable / disable breakpoint
-- [T] Remove all breakpoints
+- [x] Remove all breakpoints
 
 ## 5.2 Conditional Breakpoints
 
@@ -455,14 +455,14 @@ mem[0x10010000] == 5
 ## 5.3 Execution Controls
 
 - [x] Run
-- [T] Pause
-- [T] Stop
+- [x] Pause
+- [x] Stop
 - [x] Reset
 - [x] Step Into
-- [T] Step Back
-- [T] Run to Cursor
+- [x] Step Back
+- [x] Run to Cursor
 - [ ] Restart
-- [T] Continue
+- [x] Continue
 
 ## 5.4 Execution Speed
 
@@ -498,19 +498,19 @@ Maximum
 
 Make reverse execution reliable and useful for education.
 
-- [T] restore register changes
-- [T] restore memory writes
-- [T] restore PC
-- [T] restore HI / LO
-- [T] restore heap pointer
-- [T] restore console state where practical
-- [T] restore stack writes
-- [ ] restore manual memory edits
-- [ ] restore manual register edits
-- [T] keep bounded history
+- [x] restore register changes
+- [x] restore memory writes
+- [x] restore PC
+- [x] restore HI / LO
+- [x] restore heap pointer
+- [x] restore console state where practical
+- [x] restore stack writes
+- [x] restore manual memory edits
+- [x] restore manual register edits
+- [x] keep bounded history
 - [~] configurable history size *(API only: `HistoryLimit`; no settings UI yet)*
-- [T] clear history on reset
-- [T] visual indicator when backstep is available
+- [x] clear history on reset
+- [x] visual indicator when backstep is available
 
 Stretch goal:
 
@@ -619,29 +619,29 @@ Support and verify:
 - [x] `not`
 - [x] `neg`
 - [x] `negu`
-- [T] `abs`
-- [T] `mul`
+- [x] `abs`
+- [x] `mul`
 - [x] `rem`
 - [x] `remu`
 - [x] `b`
 - [x] `bal`
 - [x] `beqz`
 - [x] `bnez`
-- [T] `blt`
-- [T] `ble`
-- [T] `bgt`
-- [T] `bge`
-- [T] unsigned comparison branches
-- [T] rotate pseudo-instructions
-- [T] load-address variants
+- [x] `blt`
+- [x] `ble`
+- [x] `bgt`
+- [x] `bge`
+- [x] unsigned comparison branches
+- [x] rotate pseudo-instructions
+- [x] load-address variants
 
 For every pseudo-instruction:
 
 - [x] show source instruction
 - [x] show expansion
-- [T] show generated machine code
-- [T] match MARS result *(expansions come from MARS's own PseudoOps.txt)*
-- [T] test edge-case immediates
+- [x] show generated machine code
+- [x] match MARS result *(expansions come from MARS's own PseudoOps.txt)*
+- [x] test edge-case immediates
 
 ---
 
@@ -725,12 +725,12 @@ Implement a broad set of MARS syscalls.
 - [ ] 2 — Print float
 - [ ] 3 — Print double
 - [x] 4 — Print string
-- [ ] 5 — Read integer
+- [x] 5 — Read integer
 - [ ] 6 — Read float
 - [ ] 7 — Read double
-- [ ] 8 — Read string
+- [x] 8 — Read string
 - [x] 11 — Print character
-- [ ] 12 — Read character
+- [x] 12 — Read character
 
 ## Runtime
 
@@ -747,18 +747,18 @@ Implement a broad set of MARS syscalls.
 
 ## Extended MARS Syscalls
 
-- [ ] 30 — System time
+- [x] 30 — System time
 - [ ] 31 — MIDI output
 - [ ] 32 — Sleep
 - [ ] 33 — MIDI output synchronous
 - [x] 34 — Print integer hexadecimal
 - [x] 35 — Print integer binary
 - [x] 36 — Print integer unsigned
-- [ ] 40+ random number syscalls where appropriate
+- [x] 40+ random number syscalls where appropriate
 
 ## I/O UI
 
-- [ ] input prompt UI
+- [x] input prompt UI
 - [ ] console input history
 - [ ] EOF handling
 - [ ] clear console
@@ -938,8 +938,8 @@ Make projects reliable and easy to manage.
 - [ ] detect externally removed files
 - [ ] refresh project
 - [x] persist project metadata
-- [T] reopen previous tabs
-- [T] remember active file
+- [x] reopen previous tabs
+- [x] remember active file
 - [ ] remember expanded folders
 
 ## Icons
@@ -997,8 +997,8 @@ Make C# integration a first-class ASMForge feature.
 - [x] project-wide compilation
 - [x] compiler diagnostics
 - [~] warning levels
-- [T] choose entry point: active file's Main when compiling all project files
-- [T] setting: compile only the active file (default) or all project C# files
+- [x] choose entry point: active file's Main when compiling all project files
+- [x] setting: compile only the active file (default) or all project C# files
 - [ ] click diagnostic → file/line
 
 ## Runtime
@@ -1037,7 +1037,7 @@ Add:
 - [ ] events for memory change
 - [ ] events for instruction executed
 - [ ] events for syscall
-- [T] breakpoint API (`RunUntil`)
+- [x] breakpoint API (`RunUntil`)
 - [ ] load from file
 - [ ] load from project
 - [ ] symbol lookup
@@ -1193,12 +1193,12 @@ Make `sbrk` and dynamic memory visible.
 Create a polished terminal experience.
 
 - [ ] ANSI-safe text rendering
-- [ ] input support
+- [x] input support
 - [ ] output history
 - [ ] clear button
 - [ ] copy all
 - [ ] save output
-- [ ] input prompt
+- [x] input prompt
 - [ ] distinguish program output from debugger output
 - [ ] distinguish errors
 - [ ] timestamps optional
@@ -1329,7 +1329,7 @@ Tasks:
 
 Make the application comfortable on different screen sizes.
 
-- [T] resizable panels *(drag dividers: Text/Data Segment, workspace/output, registers)*
+- [x] resizable panels *(drag dividers: Text/Data Segment, workspace/output, registers)*
 - [ ] remember pane sizes
 - [ ] collapsible Project Explorer
 - [ ] collapsible right debugger panel
@@ -1432,8 +1432,8 @@ Keep large programs responsive.
 - [ ] benchmark simulator speed
 - [ ] benchmark memory viewer
 - [ ] virtualize large memory tables
-- [T] avoid refreshing entire UI every instruction at full speed
-- [T] batch UI updates during Run
+- [x] avoid refreshing entire UI every instruction at full speed
+- [x] batch UI updates during Run
 - [ ] avoid unnecessary allocations
 - [ ] profile large source files
 - [ ] profile 1,000,000+ instruction runs
@@ -1766,12 +1766,12 @@ Features:
 
 - [ ] autosave optional
 - [ ] recover unsaved files after crash
-- [T] reopen project
-- [T] reopen tabs
+- [x] reopen project
+- [x] reopen tabs
 - [ ] restore cursor positions
 - [ ] restore breakpoints
 - [ ] restore panel layout
-- [T] restore memory/register display preferences
+- [x] restore memory/register display preferences
 
 ---
 
@@ -1884,18 +1884,18 @@ Before calling ASMForge 1.0:
 - [x] heap
 - [x] memory
 - [x] labels
-- [T] machine code
+- [x] machine code
 
 ## Debugger
 
 - [x] Run
-- [T] Stop
+- [x] Stop
 - [x] Step
-- [T] Backstep
-- [T] breakpoints
+- [x] Backstep
+- [x] breakpoints
 - [x] registers
 - [x] memory
-- [T] changed-value highlighting
+- [x] changed-value highlighting
 
 ## Projects
 
@@ -1943,8 +1943,8 @@ Aim to have these polished:
 - [x] MARS-compatible memory model
 - [x] register viewer
 - [x] memory viewer
-- [T] machine-code viewer
-- [T] breakpoints
+- [x] machine-code viewer
+- [x] breakpoints
 - [~] step / backstep
 - [ ] stack visualization
 - [ ] heap visualization
@@ -2090,6 +2090,8 @@ The roadmap above is intentionally huge. A practical order from the current buil
 
 # Suggested Version Plan
 
+> **Actual releases so far** (see CHANGELOG.md): v0.9 Step Back, change highlighting, session restore; v0.10 Debugger 1.0 (breakpoints, background Run, Pause/Stop); v0.10.1 MARS-accurate pseudo-instructions, machine code, About dialog, unsaved-changes prompts; v0.11.0 console input syscalls and register/memory editing with right-click menus. The plan below is the original suggestion; remaining milestones shift accordingly.
+
 ## v0.9
 
 Debugger/UI milestone:
@@ -2205,17 +2207,17 @@ Before showing ASMForge to a teacher:
 - [x] version number visible
 - [ ] sample project ready
 - [x] assembly runs
-- [T] breakpoint works
+- [x] breakpoint works
 - [x] step works
-- [T] backstep works
+- [x] backstep works
 - [x] register change is visible
 - [x] memory change is visible
-- [T] machine code is visible
+- [x] machine code is visible
 - [ ] stack example works
 - [x] C# interop example works
 - [x] invalid code produces a useful error
-- [T] README is polished *(rewritten for v0.10.1; screenshots still to add)*
-- [T] About dialog gives project description
+- [x] README is polished *(rewritten for v0.10.1; screenshots still to add)*
+- [x] About dialog gives project description
 
 ---
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.11.0
+- **Console input**: syscalls 5 (read integer), 8 (read string, `fgets` semantics like MARS) and 12 (read character).
+  The program pauses and Run I/O enables an input box; Enter sends the line and execution resumes the way it was
+  going (Run, Step or Run to Cursor). Input is echoed to Run I/O; invalid integers are rejected before sending.
+  Step Back over a read discards that input and asks again. `ASMForgeRuntime.ProvideInput("5\n7\n")` for C#.
+- Syscalls 30 (system time) and 40-42 (seedable random numbers).
+- Run I/O keeps the latest output in view.
+- **Editing**: double-click (or right-click > Edit Value) a register or memory word to change it. Accepts hex,
+  binary, signed/unsigned decimal and `'c'`. Edits are undoable with Step Back and highlighted in blue.
+- **Right-click menus**: registers (Edit, Copy Name, Copy Value, Show Address in Memory); memory words
+  (Edit, Copy Value / Address / Row / ASCII, Follow Pointer).
+- **Memory views**: Stack ($sp), $gp and $fp views that follow their register while stepping; the Go box accepts
+  register names such as `$t0`.
+
 ## v0.10.1
 - **MARS-accurate pseudo-instructions**: expansions come from MARS's own `PseudoOps.txt` (first-fit,
   basic instructions first, MARS immediate size classes). Text addresses and `jal` return addresses now match MARS.

@@ -1,4 +1,4 @@
-# ASMForge v0.10.1
+# ASMForge v0.11.0
 
 ASMForge is a MIPS assembly IDE and simulator built with C# and Avalonia. It aims to be a modern,
 teacher-ready alternative to MARS: a MARS-compatible assembler, a debugger with breakpoints and step back,
@@ -26,13 +26,17 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version and
 - **Step** and **Step Back**: every step can be undone (registers, HI/LO, memory, PC, heap, console output),
   including stepping back out of a runtime error.
 - Registers and memory written by the last step are highlighted, with the previous value on hover.
-- Syscalls 1, 4, 9, 10, 11, 17, 34, 35, 36.
+- Syscalls 1, 4, 5, 8, 9, 10, 11, 12, 17, 30, 34, 35, 36, 40, 41, 42. Read syscalls pause the program and enable an
+  input box in Run I/O; Step Back over a read asks for the input again.
+- Double-click a register or memory word to edit it (undoable with Step Back); right-click for copy and
+  Show Address in Memory / Follow Pointer.
 
 ### Editor and workspace
 - Tabs, syntax highlighting, MIPS autocomplete, line numbers, System / Light / Dark themes.
 - Projects with an Explorer; open files, project, active tab and display formats are restored on the next launch.
 - Unsaved files are marked with `*` in the tab and title bar, and ASMForge asks before discarding them.
-- Resizable panels, memory viewer with Data / Heap / Stack / Custom views and Hex / Signed / Unsigned / Binary / ASCII formats.
+- Resizable panels, memory viewer with Data / Heap / Stack ($sp) / $gp / $fp / Custom views (register views follow
+  the register) and Hex / Signed / Unsigned / Binary / ASCII formats. The Go box accepts addresses, labels and `$registers`.
 
 ### C# integration
 - Press **Run** on a `.cs` file to compile it with Roslyn and run it inside ASMForge; console output goes to Run I/O.
@@ -107,8 +111,8 @@ mips.StepBack();
 
 ## Status
 
-See [MARS_PORT_STATUS.md](MARS_PORT_STATUS.md). Not yet supported: input syscalls (read int / string / char),
-floating point (Coprocessor 1), Coprocessor 0 exceptions, macros and `.include`, memory-mapped I/O.
+See [MARS_PORT_STATUS.md](MARS_PORT_STATUS.md). Not yet supported: floating point (Coprocessor 1) and its syscalls,
+file syscalls, Coprocessor 0 exceptions, macros and `.include`, memory-mapped I/O.
 
 ## Credits
 

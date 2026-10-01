@@ -54,6 +54,88 @@ internal sealed class SavePromptDialog : Window
     }
 }
 
+/// <summary>
+/// Prompts for a new 32-bit register or memory value. Accepts hex (0x2A), binary (0b101010),
+/// signed or unsigned decimal (-5, 4294967291) and character literals ('A').
+/// </summary>
+internal sealed class EditValueDialog : Window
+{
+    private readonly TextBox _input;
+    private readonly TextBlock _error;
+
+    private EditValueDialog(string title, uint current)
+    {
+        Title = title;
+        Width = 380;
+        SizeToContent = SizeToContent.Height;
+        CanResize = false;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        _input = new TextBox { Text = $"0x{current:X8}", FontFamily = new FontFamily("Cascadia Mono,Consolas") };
+        _error = new TextBlock { Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap, IsVisible = false };
+        var ok = new Button { Content = "Set", IsDefault = true };
+        var cancel = new Button { Content = "Cancel", IsCancel = true };
+        ok.Click += (_, _) => Accept();
+        cancel.Click += (_, _) => Close(null);
+
+        Content = new StackPanel
+        {
+            Margin = new Thickness(18),
+            Spacing = 10,
+            Children =
+            {
+                new TextBlock { Text = $"Current value: 0x{current:X8} ({unchecked((int)current)})", Opacity = 0.85 },
+                _input,
+                new TextBlock { Text = "Hex 0x2A, binary 0b101010, decimal -5 or 42, or a character 'A'.", Opacity = 0.7, TextWrapping = TextWrapping.Wrap },
+                _error,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { ok, cancel }
+                }
+            }
+        };
+        Opened += (_, _) => { _input.Focus(); _input.SelectAll(); };
+    }
+
+    private void Accept()
+    {
+        if (TryParseValue(_input.Text ?? string.Empty, out var value)) { Close(value); return; }
+        _error.Text = "Not a valid 32-bit value.";
+        _error.IsVisible = true;
+    }
+
+    /// <summary>Returns the new value, or null if cancelled.</summary>
+    public static Task<uint?> ShowAsync(Window owner, string title, uint current) =>
+        new EditValueDialog(title, current).ShowDialog<uint?>(owner);
+
+    internal static bool TryParseValue(string text, out uint value)
+    {
+        value = 0;
+        var s = text.Trim().Replace("_", string.Empty);
+        if (s.Length == 0) return false;
+        try
+        {
+            if (s.Length == 3 && s[0] == '\'' && s[2] == '\'') { value = s[1]; return true; }
+            var negative = s.StartsWith('-');
+            if (negative) s = s[1..];
+            long parsed = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? Convert.ToInt64(s[2..], 16)
+                : s.StartsWith("0b", StringComparison.OrdinalIgnoreCase) ? Convert.ToInt64(s[2..], 2)
+                : long.Parse(s, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture);
+            if (negative) parsed = -parsed;
+            if (parsed < int.MinValue || parsed > uint.MaxValue) return false;
+            value = unchecked((uint)parsed);
+            return true;
+        }
+        catch (Exception e) when (e is FormatException or OverflowException or ArgumentException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary>Help > About: version, description, runtime, credits and where settings/logs live.</summary>
 internal sealed class AboutDialog : Window
 {

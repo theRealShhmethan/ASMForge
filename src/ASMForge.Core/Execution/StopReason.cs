@@ -12,5 +12,18 @@ public enum StopReason
     /// <summary>Cancellation was requested (Pause or Stop).</summary>
     Paused,
     /// <summary>The instruction limit was reached; the program may be in an infinite loop.</summary>
-    LimitReached
+    LimitReached,
+    /// <summary>A read syscall needs console input; call ProvideInput and run again.</summary>
+    WaitingForInput
+}
+
+/// <summary>What kind of value a waiting read syscall expects.</summary>
+public enum InputKind
+{
+    /// <summary>Syscall 5, read integer.</summary>
+    Integer,
+    /// <summary>Syscall 8, read string.</summary>
+    String,
+    /// <summary>Syscall 12, read character.</summary>
+    Character
 }

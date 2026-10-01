@@ -29,6 +29,10 @@ public sealed class ASMForgeRuntime
     public string Output => _machine.ConsoleText;
     public int ExitCode => _machine.ExitCode;
     public StepRecord? LastStep => _machine.LastStep;
+    public bool WaitingForInput => _machine.WaitingForInput;
+
+    /// <summary>Supplies console input for read syscalls; one line per read (e.g. "5\n7\n"). Call after LoadAssembly.</summary>
+    public void ProvideInput(string text) => _machine.ProvideInput(text);
     public bool CanStepBack => _machine.CanStepBack;
 
     public AssemblyProgram LoadAssembly(string source)

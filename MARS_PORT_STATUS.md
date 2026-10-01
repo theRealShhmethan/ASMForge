@@ -1,4 +1,4 @@
-# MARS Port Status - ASMForge v0.10.1
+# MARS Port Status - ASMForge v0.11.0
 
 ## Working / ported
 - Core integer MIPS simulation from the v0.8 checkpoint.
@@ -7,7 +7,7 @@
 - MARS-style data alignment.
 - Pseudo-instructions expanded exactly as MARS does, driven by MARS's own PseudoOps.txt (integer forms; floating-point forms pending). Text addresses match MARS.
 - Core load/store, arithmetic, branch/jump, HI/LO behavior.
-- MARS-compatible syscall subset already present in v0.8.
+- Syscalls 1, 4, 5, 8, 9, 10, 11, 12, 17, 30, 34, 35, 36, 40, 41, 42 (console input via the Run I/O input box).
 - Live Data/Heap/Stack memory viewer.
 - Memory display format switching: hex, signed decimal, unsigned decimal, binary, ASCII.
 - Resizable memory columns.
@@ -19,7 +19,7 @@
 ## Still outstanding for broader MARS compatibility
 - Full Coprocessor 1 floating-point implementation.
 - Coprocessor 0 exception/status model.
-- Remaining MARS syscalls.
+- Remaining MARS syscalls (floating point 2/3/6/7, files 13-16, sleep 32, MIDI 31/33, dialogs 50-59, random float/double 43/44).
 - Full macro / include compatibility.
 - Memory-mapped I/O.
 - Delayed-branch configuration.

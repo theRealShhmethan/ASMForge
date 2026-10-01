@@ -21,6 +21,11 @@ public sealed class MipsMachine
     public int ExitCode { get; private set; }
 
     private uint _heapBreak = MipsMemory.HeapBase;
+    // Console input: typed lines (each ending in '\n') and how far read syscalls have consumed them.
+    private string _input = string.Empty;
+    private int _inputPosition;
+    // Syscall 40-42 random generators by id (MARS keeps one per id).
+    private readonly Dictionary<int, Random> _random = new();
     private readonly StepJournal _journal = new();
     private readonly LinkedList<StepRecord> _history = new();
     private int _historyLimit = 5000;
@@ -38,9 +43,35 @@ public sealed class MipsMachine
         set { _historyLimit = Math.Max(0, value); TrimHistory(); }
     }
 
+    /// <summary>True when a read syscall is waiting for <see cref="ProvideInput"/>; the PC has not advanced.</summary>
+    public bool WaitingForInput { get; private set; }
+
+    /// <summary>The kind of value the waiting read syscall expects, or null when not waiting.</summary>
+    public InputKind? PendingInputKind { get; private set; }
+
+    /// <summary>Console input that has been provided but not read yet.</summary>
+    public string UnreadInput => _input[_inputPosition..];
+
+    /// <summary>
+    /// Supplies console input for read syscalls (5, 8, 12). Each line is one read; a trailing newline is added
+    /// if missing. Clears the waiting state so the next Step/Run retries the read.
+    /// </summary>
+    public void ProvideInput(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        _input += text.EndsWith('\n') ? text : text + "\n";
+        WaitingForInput = false;
+        PendingInputKind = null;
+    }
+
     public void Load(AssemblyProgram program)
     {
         Program = program;
+        _input = string.Empty;
+        _inputPosition = 0;
+        WaitingForInput = false;
+        PendingInputKind = null;
+        _random.Clear();
         _history.Clear();
         LastStep = null;
         LastStepWasUndo = false;
@@ -73,7 +104,10 @@ public sealed class MipsMachine
         var heapBefore = _heapBreak;
         var consoleBefore = ConsoleText.Length;
         var exitCodeBefore = ExitCode;
+        var inputBefore = _inputPosition;
         var completed = false;
+        WaitingForInput = false;
+        PendingInputKind = null;
 
         _journal.Clear();
         Registers.Journal = _journal;
@@ -81,6 +115,12 @@ public sealed class MipsMachine
         try
         {
             Execute(x, ref nextPc);
+            if (WaitingForInput)
+            {
+                // A read syscall found no input: nothing changed and the PC stays on the syscall.
+                completed = true;
+                return;
+            }
             if (!Halted)
             {
                 PC = nextPc;
@@ -99,9 +139,38 @@ public sealed class MipsMachine
             Registers.Journal = null;
             Memory.Journal = null;
             // Faulting steps are recorded too, so Step Back can return to the state before the error.
-            Record(new StepRecord(pc, index, PC, _journal.Registers.ToArray(), _journal.Memory.ToArray(),
-                heapBefore, _heapBreak, consoleBefore, exitCodeBefore, !completed));
+            if (!WaitingForInput)
+                Record(new StepRecord(pc, index, PC, _journal.Registers.ToArray(), _journal.Memory.ToArray(),
+                    heapBefore, _heapBreak, consoleBefore, exitCodeBefore, !completed, inputBefore, _inputPosition));
         }
+    }
+
+    /// <summary>Sets a register (0-31, HI, LO) as an undoable edit; Step Back reverts it.</summary>
+    public void EditRegister(int index, int value)
+    {
+        if (index == 0) throw new InvalidOperationException("$zero is always 0 and cannot be edited.");
+        RecordEdit(() => Registers.SetByIndex(index, value));
+    }
+
+    /// <summary>Writes a word of memory as an undoable edit; Step Back reverts it.</summary>
+    public void EditMemoryWord(uint address, uint value) => RecordEdit(() => Memory.WriteWord(address, value));
+
+    private void RecordEdit(Action edit)
+    {
+        _journal.Clear();
+        Registers.Journal = _journal;
+        Memory.Journal = _journal;
+        try
+        {
+            edit();
+        }
+        finally
+        {
+            Registers.Journal = null;
+            Memory.Journal = null;
+        }
+        Record(new StepRecord(PC, InstructionIndex, PC, _journal.Registers.ToArray(), _journal.Memory.ToArray(),
+            _heapBreak, _heapBreak, ConsoleText.Length, ExitCode, false, _inputPosition, _inputPosition, Halted, IsEdit: true));
     }
 
     /// <summary>
@@ -126,7 +195,13 @@ public sealed class MipsMachine
         _heapBreak = record.HeapBreakBefore;
         ConsoleText = ConsoleText[..Math.Min(record.ConsoleLengthBefore, ConsoleText.Length)];
         ExitCode = record.ExitCodeBefore;
-        Halted = false;
+        // Undoing a read discards the input it consumed, so stepping forward asks for input again.
+        if (record.InputPositionAfter > record.InputPositionBefore && record.InputPositionAfter <= _input.Length)
+            _input = _input.Remove(record.InputPositionBefore, record.InputPositionAfter - record.InputPositionBefore);
+        _inputPosition = Math.Min(record.InputPositionBefore, _input.Length);
+        WaitingForInput = false;
+        PendingInputKind = null;
+        Halted = record.HaltedBefore;
         LastStep = record;
         LastStepWasUndo = true;
         return true;
@@ -148,7 +223,12 @@ public sealed class MipsMachine
 
     public void Run(int max = 1_000_000)
     {
-        for (var i = 0; i < max && !Halted; i++) Step();
+        for (var i = 0; i < max && !Halted; i++)
+        {
+            Step();
+            if (WaitingForInput)
+                throw new InvalidOperationException($"The program is waiting for console input ({PendingInputKind}). Call ProvideInput before running.");
+        }
         if (!Halted) throw new InvalidOperationException("Execution limit reached.");
     }
 
@@ -171,6 +251,7 @@ public sealed class MipsMachine
             }
             if (cancellation.IsCancellationRequested) return StopReason.Paused;
             Step();
+            if (WaitingForInput) return StopReason.WaitingForInput;
         }
         return Halted ? StopReason.Halted : StopReason.LimitReached;
     }
@@ -358,6 +439,30 @@ public sealed class MipsMachine
     private static readonly System.Text.RegularExpressions.Regex DivisionSource =
         new(@"(^|[\s:])(div|divu|rem|remu)\s", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // Takes the next input line for a read syscall and echoes it to the console like a terminal.
+    // Returns false (and enters the waiting state) when no complete line has been provided yet.
+    private bool TryReadLine(InputKind kind, out string line)
+    {
+        var newline = _input.IndexOf('\n', _inputPosition);
+        if (newline < 0)
+        {
+            line = string.Empty;
+            WaitingForInput = true;
+            PendingInputKind = kind;
+            return false;
+        }
+        line = _input[_inputPosition..newline].TrimEnd('\r');
+        _inputPosition = newline + 1;
+        ConsoleText += line + "\n";
+        return true;
+    }
+
+    private Random RandomFor(int id)
+    {
+        if (!_random.TryGetValue(id, out var generator)) _random[id] = generator = new Random();
+        return generator;
+    }
+
     private uint Target(string operand)
     {
         if (Program is not null && Program.Symbols.TryGetValue(operand.Trim(), out var address)) return address;
@@ -385,6 +490,53 @@ public sealed class MipsMachine
             case 34: ConsoleText += $"0x{unchecked((uint)Registers[4]):X8}"; break;
             case 35: ConsoleText += Convert.ToString(Registers[4], 2).PadLeft(32, '0'); break;
             case 36: ConsoleText += unchecked((uint)Registers[4]).ToString(CultureInfo.InvariantCulture); break;
+            case 5: // read integer -> $v0
+            {
+                if (!TryReadLine(InputKind.Integer, out var line)) return;
+                if (!int.TryParse(line.Trim(), NumberStyles.AllowLeadingSign | NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite,
+                        CultureInfo.InvariantCulture, out var value))
+                    throw new InvalidOperationException($"Invalid integer input \"{line}\" (syscall 5, read integer).");
+                Registers[2] = value;
+                break;
+            }
+            case 8: // read string into buffer $a0 of length $a1, with fgets semantics like MARS
+            {
+                if (!TryReadLine(InputKind.String, out var line)) return;
+                var buffer = unchecked((uint)Registers[4]);
+                var length = Registers[5];
+                if (length < 1) break;                               // nothing is written
+                var text = line + "\n";
+                var count = Math.Min(text.Length, length - 1);       // at most n-1 chars; newline kept if it fits
+                for (var i = 0; i < count; i++) Memory.WriteByte(buffer + (uint)i, unchecked((byte)text[i]));
+                Memory.WriteByte(buffer + (uint)count, 0);
+                break;
+            }
+            case 12: // read character -> $v0 (first character of the line; an empty line reads '\n')
+            {
+                if (!TryReadLine(InputKind.Character, out var line)) return;
+                Registers[2] = line.Length > 0 ? line[0] : '\n';
+                break;
+            }
+            case 30: // system time: milliseconds since 1970, low word in $a0, high word in $a1
+            {
+                var milliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                Registers[4] = unchecked((int)milliseconds);
+                Registers[5] = unchecked((int)(milliseconds >> 32));
+                break;
+            }
+            case 40: // set seed: generator id $a0, seed $a1
+                _random[Registers[4]] = new Random(Registers[5]);
+                break;
+            case 41: // random int -> $a0
+                Registers[4] = RandomFor(Registers[4]).Next(int.MinValue, int.MaxValue);
+                break;
+            case 42: // random int in [0, $a1) -> $a0
+            {
+                var upper = Registers[5];
+                if (upper <= 0) throw new InvalidOperationException($"Upper bound of range must be positive (syscall 42, $a1 = {upper}).");
+                Registers[4] = RandomFor(Registers[4]).Next(upper);
+                break;
+            }
             default: throw new NotSupportedException($"Syscall {Registers[2]} is not implemented yet.");
         }
     }
