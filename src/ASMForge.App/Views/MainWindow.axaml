@@ -28,7 +28,7 @@
         <MenuItem Header="_Assemble" InputGesture="F3" Click="Assemble_Click"/>
         <MenuItem Header="_Run" InputGesture="F5" Click="Run_Click"/>
         <MenuItem Header="_Step" InputGesture="F10" Click="Step_Click"/>
-        <MenuItem Header="_Back" Click="Back_Click"/>
+        <MenuItem Name="BackMenuItem" Header="Step _Back" InputGesture="F9" Click="Back_Click"/>
         <MenuItem Header="_Reset" Click="Reset_Click"/>
       </MenuItem>
 
@@ -63,7 +63,7 @@
           <Button Click="Assemble_Click">Assemble</Button>
           <Button Click="Run_Click">Run</Button>
           <Button Click="Step_Click">Step</Button>
-          <Button Click="Back_Click">Back</Button>
+          <Button Name="BackButton" Click="Back_Click" ToolTip.Tip="Undo the last executed instruction (F9)">Back</Button>
           <Button Click="Reset_Click">Reset</Button>
           <TextBlock Name="Status"
                      VerticalAlignment="Center"
@@ -85,16 +85,23 @@
       </Grid>
     </Border>
 
-    <!-- MARS-like main work area: workspace/output on the left, registers on the right. -->
-    <Grid Grid.Row="2"
-          Margin="6"
-          ColumnDefinitions="*,330"
-          RowDefinitions="*,220">
+    <!-- MARS-like main work area: workspace/output on the left, registers on the right.
+         The GridSplitters let the user drag to resize the workspace, output, and register panels. -->
+    <Grid Grid.Row="2" Margin="6">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="400"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="330" MinWidth="200"/>
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*" MinHeight="200"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="220" MinHeight="80"/>
+      </Grid.RowDefinitions>
 
       <TabControl Grid.Row="0"
                   Grid.Column="0"
-                  Name="WorkspaceTabs"
-                  Margin="0,0,6,6">
+                  Name="WorkspaceTabs">
 
         <TabItem Header="EDIT">
           <Grid ColumnDefinitions="230,*">
@@ -130,11 +137,15 @@
         </TabItem>
 
         <TabItem Header="EXECUTE">
-          <Grid RowDefinitions="1.15*,0.85*">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="1.15*" MinHeight="90"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="0.85*" MinHeight="90"/>
+            </Grid.RowDefinitions>
             <Border BorderThickness="1"
                     BorderBrush="{DynamicResource ThemeBorderLowBrush}"
-                    Padding="3"
-                    Margin="0,0,0,5">
+                    Padding="3">
               <Grid RowDefinitions="Auto,*">
                 <TextBlock Text="Text Segment"
                            FontWeight="Bold"
@@ -156,7 +167,10 @@
               </Grid>
             </Border>
 
-            <Border Grid.Row="1"
+            <GridSplitter Grid.Row="1" Height="6" ResizeDirection="Rows"
+                          HorizontalAlignment="Stretch" Background="Transparent"/>
+
+            <Border Grid.Row="2"
                     BorderThickness="1"
                     BorderBrush="{DynamicResource ThemeBorderLowBrush}"
                     Padding="3">
@@ -190,10 +204,43 @@
                             GridLinesVisibility="All" FontFamily="Cascadia Mono,Consolas" SelectionMode="Single">
                     <DataGrid.Columns>
                       <DataGridTextColumn Header="Address" Binding="{Binding Address}" Width="125" MinWidth="105" CanUserResize="True"/>
-                      <DataGridTextColumn Header="+0" Binding="{Binding W0}" Width="135" MinWidth="110" CanUserResize="True"/>
-                      <DataGridTextColumn Header="+4" Binding="{Binding W4}" Width="135" MinWidth="110" CanUserResize="True"/>
-                      <DataGridTextColumn Header="+8" Binding="{Binding W8}" Width="135" MinWidth="110" CanUserResize="True"/>
-                      <DataGridTextColumn Header="+C" Binding="{Binding WC}" Width="135" MinWidth="110" CanUserResize="True"/>
+                      <!-- Word cells are templated so words written by the last step can be highlighted. -->
+                      <DataGridTemplateColumn Header="+0" Width="135" MinWidth="110" CanUserResize="True">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <Border Background="{Binding W0.Background}" ToolTip.Tip="{Binding W0.Tip}" Padding="12,0">
+                              <TextBlock Text="{Binding W0.Text}" FontWeight="{Binding W0.Weight}" VerticalAlignment="Center"/>
+                            </Border>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                      <DataGridTemplateColumn Header="+4" Width="135" MinWidth="110" CanUserResize="True">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <Border Background="{Binding W4.Background}" ToolTip.Tip="{Binding W4.Tip}" Padding="12,0">
+                              <TextBlock Text="{Binding W4.Text}" FontWeight="{Binding W4.Weight}" VerticalAlignment="Center"/>
+                            </Border>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                      <DataGridTemplateColumn Header="+8" Width="135" MinWidth="110" CanUserResize="True">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <Border Background="{Binding W8.Background}" ToolTip.Tip="{Binding W8.Tip}" Padding="12,0">
+                              <TextBlock Text="{Binding W8.Text}" FontWeight="{Binding W8.Weight}" VerticalAlignment="Center"/>
+                            </Border>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                      <DataGridTemplateColumn Header="+C" Width="135" MinWidth="110" CanUserResize="True">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <Border Background="{Binding WC.Background}" ToolTip.Tip="{Binding WC.Tip}" Padding="12,0">
+                              <TextBlock Text="{Binding WC.Text}" FontWeight="{Binding WC.Weight}" VerticalAlignment="Center"/>
+                            </Border>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
                       <DataGridTextColumn Header="ASCII" Binding="{Binding Ascii}" Width="180" MinWidth="120" CanUserResize="True"/>
                     </DataGrid.Columns>
                   </DataGrid>
@@ -204,9 +251,11 @@
         </TabItem>
       </TabControl>
 
-      <TabControl Grid.Row="1"
+      <GridSplitter Grid.Row="1" Grid.Column="0" Height="6" ResizeDirection="Rows"
+                    HorizontalAlignment="Stretch" Background="Transparent"/>
+
+      <TabControl Grid.Row="2"
                   Grid.Column="0"
-                  Margin="0,0,6,0"
                   Name="OutputTabs"
                   SelectedIndex="1">
         <TabItem Header="Messages">
@@ -225,9 +274,12 @@
         </TabItem>
       </TabControl>
 
+      <GridSplitter Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="6" ResizeDirection="Columns"
+                    VerticalAlignment="Stretch" Background="Transparent"/>
+
       <TabControl Grid.Row="0"
-                  Grid.RowSpan="2"
-                  Grid.Column="1">
+                  Grid.RowSpan="3"
+                  Grid.Column="2">
         <TabItem Header="Registers">
           <Grid Margin="8" RowDefinitions="Auto,Auto,*">
             <Grid ColumnDefinitions="*,Auto">
@@ -251,7 +303,16 @@
                        Margin="0,7"/>
             <ListBox Grid.Row="2"
                      Name="RegistersList"
-                     FontFamily="Cascadia Mono,Consolas"/>
+                     FontFamily="Cascadia Mono,Consolas">
+              <ListBox.ItemTemplate>
+                <!-- Registers written by the last step are highlighted, bolded, and show their previous value on hover. -->
+                <DataTemplate>
+                  <Border Background="{Binding Background}" ToolTip.Tip="{Binding Tip}" CornerRadius="2" Padding="4,1">
+                    <TextBlock Text="{Binding Text}" FontWeight="{Binding Weight}"/>
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
           </Grid>
         </TabItem>
 

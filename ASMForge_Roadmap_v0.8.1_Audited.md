@@ -89,8 +89,19 @@ This roadmap begins from that baseline.
 - [x] Data / Heap / Stack / Custom memory views
 - [x] MARS-style `.half`, `.word`, `.float`, `.double` auto-alignment and `.align 0`
 - [x] Syscalls 1, 4, 9, 10, 11, 17, 34, 35, and 36
-- [!] Back button exists, but reverse-state restoration is explicitly not implemented yet
+- [!] Back button exists, but reverse-state restoration is explicitly not implemented yet *(addressed in v0.9 work below)*
 - [!] Text Segment Code column exists, but machine-code encoding is still not implemented (`—`)
+
+### v0.9 in progress — per-step change record
+
+> Written without compiling (build not yet run). Items below are `[T]` until `dotnet build` / `dotnet test` pass.
+
+- [T] `MipsMachine` records a `StepRecord` per step: register/HI/LO writes, memory byte writes, PC, heap break, console length, exit code, fault flag
+- [T] `MipsMachine.StepBack()` / `ASMForgeRuntime.StepBack()` with bounded history (`HistoryLimit`, default 5000)
+- [T] Faulting steps are recorded, so Step Back recovers from runtime errors
+- [T] Register and memory viewers highlight values written by the last step, with previous value on hover
+- [T] Back button / menu item restore state and are disabled when no history exists
+- [T] `tests/ASMForge.Core.Tests/BackstepTests.cs`
 
 ---
 
@@ -173,7 +184,7 @@ Create automated tests for:
 - [ ] pseudo-instruction expansion
 - [ ] reset behavior
 - [ ] step behavior
-- [ ] backstep behavior
+- [T] backstep behavior
 - [ ] C# runtime bridge
 
 ## 1.4 Test Suite Organization
@@ -259,12 +270,12 @@ ASCII:
 
 ## 2.4 Live Debugging Feedback
 
-- [ ] Highlight memory modified by the last instruction
-- [ ] Highlight byte writes
-- [ ] Highlight halfword writes
-- [ ] Highlight word writes
-- [ ] Clear highlight on next step
-- [ ] Preserve current viewport during stepping
+- [T] Highlight memory modified by the last instruction
+- [T] Highlight byte writes
+- [T] Highlight halfword writes
+- [T] Highlight word writes
+- [T] Clear highlight on next step
+- [T] Preserve current viewport during stepping
 - [ ] Auto-follow `$sp` option
 - [ ] Auto-follow heap option
 
@@ -328,9 +339,9 @@ Display groups for:
 
 ## 3.3 Debug Feedback
 
-- [ ] Highlight registers changed by last step
+- [T] Highlight registers changed by last step
 - [ ] Different highlight for manually edited register
-- [ ] Show previous value on hover
+- [T] Show previous value on hover
 - [ ] Copy register name
 - [ ] Copy register value
 - [ ] Right-click → Go to address in memory
@@ -447,7 +458,7 @@ mem[0x10010000] == 5
 - [ ] Stop
 - [x] Reset
 - [x] Step Into
-- [ ] Step Back
+- [T] Step Back
 - [ ] Run to Cursor
 - [ ] Restart
 - [ ] Continue
@@ -486,19 +497,19 @@ Maximum
 
 Make reverse execution reliable and useful for education.
 
-- [ ] restore register changes
-- [ ] restore memory writes
-- [ ] restore PC
-- [ ] restore HI / LO
-- [ ] restore heap pointer
-- [ ] restore console state where practical
-- [ ] restore stack writes
+- [T] restore register changes
+- [T] restore memory writes
+- [T] restore PC
+- [T] restore HI / LO
+- [T] restore heap pointer
+- [T] restore console state where practical
+- [T] restore stack writes
 - [ ] restore manual memory edits
 - [ ] restore manual register edits
-- [ ] keep bounded history
-- [ ] configurable history size
-- [ ] clear history on reset
-- [ ] visual indicator when backstep is available
+- [T] keep bounded history
+- [~] configurable history size *(API only: `HistoryLimit`; no settings UI yet)*
+- [T] clear history on reset
+- [T] visual indicator when backstep is available
 
 Stretch goal:
 
@@ -926,8 +937,8 @@ Make projects reliable and easy to manage.
 - [ ] detect externally removed files
 - [ ] refresh project
 - [x] persist project metadata
-- [ ] reopen previous tabs
-- [ ] remember active file
+- [T] reopen previous tabs
+- [T] remember active file
 - [ ] remember expanded folders
 
 ## Icons
@@ -1293,7 +1304,7 @@ Ctrl+H       Replace
 F5           Run
 Shift+F5     Stop
 F10          Step
-Alt+Left     Step Back
+F9           Step Back
 Ctrl+B       Toggle Breakpoint
 Ctrl+G       Go to Line
 Ctrl+Shift+G Go to Address
@@ -1315,7 +1326,7 @@ Tasks:
 
 Make the application comfortable on different screen sizes.
 
-- [~] resizable panels
+- [T] resizable panels *(drag dividers: Text/Data Segment, workspace/output, registers)*
 - [ ] remember pane sizes
 - [ ] collapsible Project Explorer
 - [ ] collapsible right debugger panel
@@ -1752,8 +1763,8 @@ Features:
 
 - [ ] autosave optional
 - [ ] recover unsaved files after crash
-- [ ] reopen project
-- [ ] reopen tabs
+- [T] reopen project
+- [T] reopen tabs
 - [ ] restore cursor positions
 - [ ] restore breakpoints
 - [ ] restore panel layout
@@ -1877,11 +1888,11 @@ Before calling ASMForge 1.0:
 - [x] Run
 - [ ] Stop
 - [x] Step
-- [ ] Backstep
+- [T] Backstep
 - [ ] breakpoints
 - [x] registers
 - [x] memory
-- [ ] changed-value highlighting
+- [T] changed-value highlighting
 
 ## Projects
 
@@ -2193,7 +2204,7 @@ Before showing ASMForge to a teacher:
 - [x] assembly runs
 - [ ] breakpoint works
 - [x] step works
-- [ ] backstep works
+- [T] backstep works
 - [x] register change is visible
 - [x] memory change is visible
 - [ ] machine code is visible

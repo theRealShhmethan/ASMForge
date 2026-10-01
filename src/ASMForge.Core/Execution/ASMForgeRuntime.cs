@@ -28,6 +28,8 @@ public sealed class ASMForgeRuntime
     public bool IsRunning { get; private set; }
     public string Output => _machine.ConsoleText;
     public int ExitCode => _machine.ExitCode;
+    public StepRecord? LastStep => _machine.LastStep;
+    public bool CanStepBack => _machine.CanStepBack;
 
     public AssemblyProgram LoadAssembly(string source)
     {
@@ -54,6 +56,13 @@ public sealed class ASMForgeRuntime
     {
         EnsureLoaded();
         _machine.Step();
+    }
+
+    /// <summary>Undoes the most recent step. Returns false when there is no step history.</summary>
+    public bool StepBack()
+    {
+        EnsureLoaded();
+        return _machine.StepBack();
     }
 
     public void Reset()

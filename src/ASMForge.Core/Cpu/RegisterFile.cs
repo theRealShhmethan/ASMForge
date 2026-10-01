@@ -1,24 +1,80 @@
+using ASMForge.Core.Execution;
+
 namespace ASMForge.Core.Cpu;
 
 public sealed class RegisterFile
 {
     public const int Count = 32;
+    public const int HiIndex = 32;
+    public const int LoIndex = 33;
     private readonly int[] _r = new int[Count];
+    private int _hi;
+    private int _lo;
+
+    /// <summary>While set, every register write is recorded for the current step.</summary>
+    internal StepJournal? Journal { get; set; }
 
     public int this[int i]
     {
         get => i == 0 ? 0 : _r[i];
-        set { if (i != 0) _r[i] = value; }
+        set
+        {
+            if (i == 0) return;
+            Journal?.Registers.Add(new RegisterChange(i, _r[i], value));
+            _r[i] = value;
+        }
     }
 
-    public int HI { get; set; }
-    public int LO { get; set; }
+    public int HI
+    {
+        get => _hi;
+        set
+        {
+            Journal?.Registers.Add(new RegisterChange(HiIndex, _hi, value));
+            _hi = value;
+        }
+    }
+
+    public int LO
+    {
+        get => _lo;
+        set
+        {
+            Journal?.Registers.Add(new RegisterChange(LoIndex, _lo, value));
+            _lo = value;
+        }
+    }
 
     public void Reset()
     {
         Array.Clear(_r);
-        HI = LO = 0;
+        _hi = _lo = 0;
     }
+
+    /// <summary>Reads a register by change index: 0-31, <see cref="HiIndex"/> or <see cref="LoIndex"/>.</summary>
+    public int GetByIndex(int index) => index switch
+    {
+        HiIndex => _hi,
+        LoIndex => _lo,
+        _ => this[index]
+    };
+
+    internal void SetByIndex(int index, int value)
+    {
+        switch (index)
+        {
+            case HiIndex: HI = value; break;
+            case LoIndex: LO = value; break;
+            default: this[index] = value; break;
+        }
+    }
+
+    public static string NameOf(int index) => index switch
+    {
+        HiIndex => "HI",
+        LoIndex => "LO",
+        _ => Names[index]
+    };
 
     public static readonly string[] Names =
     {

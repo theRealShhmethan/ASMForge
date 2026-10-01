@@ -8,7 +8,10 @@ public partial class NewItemDialog : Window
 {
     public NewItemResult? Result { get; private set; }
 
-    public NewItemDialog(string? defaultLocation = null)
+    // Parameterless constructor required by Avalonia's XAML runtime loader and designer.
+    public NewItemDialog() : this(null) { }
+
+    public NewItemDialog(string? defaultLocation)
     {
         InitializeComponent();
         LocationBox.Text = !string.IsNullOrWhiteSpace(defaultLocation)

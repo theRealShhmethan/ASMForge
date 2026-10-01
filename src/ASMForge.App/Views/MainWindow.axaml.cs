@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using AvaloniaEdit;
@@ -12,6 +13,8 @@ using ASMForge.Core.Assembly;
 using ASMForge.Core.Cpu;
 using ASMForge.Core.Execution;
 using ASMForge.Core.Memory;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
@@ -24,11 +27,18 @@ public partial class MainWindow : Window
     private readonly SimpleAssembler _assembler = new();
     private readonly MipsMachine _machine = new();
     private AssemblyProgram? _program;
-    private readonly Stack<int> _history = new();
     private readonly List<EditorDocument> _documents = new();
+    // Semi-transparent amber reads on both light and dark themes; changed values are also bolded.
+    private static readonly IBrush ChangedBrush = new ImmutableSolidColorBrush(Color.FromArgb(110, 255, 196, 0));
+    private readonly RegisterRow[] _registerRows = Enumerable.Range(0, RegisterFile.Count + 2).Select(_ => new RegisterRow()).ToArray();
+    private readonly MemoryRow[] _memoryRows = Enumerable.Range(0, 16).Select(_ => new MemoryRow()).ToArray();
+    private AssemblyProgram? _textSegmentProgram;
+    private List<TextRow> _textRows = new();
     private CompletionWindow? _completionWindow;
     private string? _projectFolder;
     private AppSettings _settings = AppSettings.Load();
+    // True while restoring or tearing down, so tab changes don't overwrite the saved session.
+    private bool _sessionPaused;
     private const string Sample = "# ASMForge v0.8.1 sample\nli $t0, 10\nli $t1, 3\nrem $t2, $t0, $t1\n\nmove $a0, $t2\nli $v0, 1\nsyscall\nli $v0, 10\nsyscall\n";
     private const string CsTemplate = """"
 using System;
@@ -78,7 +88,8 @@ main:
         DiagnosticLog.Info("MainWindow XAML initialized");
         ShowLineNumbersMenu.IsChecked = _settings.ShowLineNumbers;
         SyntaxHighlightingMenu.IsChecked = _settings.SyntaxHighlighting;
-        OpenDocument(null, "main.asm", Sample, false);
+        RestoreSession();
+        if (_documents.Count == 0) OpenDocument(null, "main.asm", Sample, false);
         RefreshExplorer(); RefreshDisplay();
         Opened += MainWindow_Opened;
         DiagnosticLog.Info($"MainWindow initialized. Documents={_documents.Count}, EditorTabs={EditorTabs.Items.Count}");
@@ -102,6 +113,51 @@ main:
             DiagnosticLog.Info($"ActiveDocument={doc.Name}; TextLength={ed.Text?.Length ?? 0}; EditorBounds={ed.Bounds.Width:0.##}x{ed.Bounds.Height:0.##}; IsVisible={ed.IsVisible}; IsEffectivelyVisible={ed.IsEffectivelyVisible}; Parent={ed.Parent?.GetType().FullName ?? "<null>"}; LineNumbers={ed.ShowLineNumbers}; SyntaxHighlighting={_settings.SyntaxHighlighting}; Transformers={ed.TextArea.TextView.LineTransformers.Count}; RequestedTheme={RequestedThemeVariant}");
         }
         catch (Exception ex) { DiagnosticLog.Error("Failed to collect editor diagnostics", ex); }
+    }
+
+    // Reopens the project folder and files that were open last time, then re-selects the active tab.
+    private void RestoreSession()
+    {
+        _sessionPaused = true;
+        var restored = 0;
+        var missing = 0;
+        try
+        {
+            if (_settings.ProjectFolder is { } folder)
+            {
+                if (Directory.Exists(folder)) _projectFolder = folder;
+                else DiagnosticLog.Warn($"Previous project folder no longer exists: {folder}");
+            }
+
+            foreach (var path in _settings.OpenFiles)
+            {
+                if (!File.Exists(path)) { missing++; DiagnosticLog.Warn($"Previously open file no longer exists: {path}"); continue; }
+                try { OpenFilePath(path); restored++; }
+                catch (Exception ex) { missing++; DiagnosticLog.Error($"Could not reopen {path}", ex); }
+            }
+
+            var active = _documents.FindIndex(d => string.Equals(d.Path, _settings.ActiveFile, StringComparison.OrdinalIgnoreCase));
+            if (active >= 0) EditorTabs.SelectedIndex = active;
+        }
+        finally
+        {
+            _sessionPaused = false;
+        }
+        SaveSession(); // drop files that no longer exist from the saved list
+
+        if (restored > 0 || missing > 0)
+            Status.Text = missing == 0 ? $"Restored {restored} file(s)" : $"Restored {restored} file(s); {missing} could not be found";
+        DiagnosticLog.Info($"Session restored: project={_projectFolder ?? "<none>"}; files={restored}; missing={missing}");
+    }
+
+    // Persists the open project, open file paths and active file. Untitled documents have no path and are not saved.
+    private void SaveSession()
+    {
+        if (_sessionPaused) return;
+        _settings.ProjectFolder = _projectFolder;
+        _settings.OpenFiles = _documents.Where(d => d.Path is not null).Select(d => d.Path!).ToList();
+        _settings.ActiveFile = ActiveDocument?.Path;
+        _settings.Save();
     }
 
     private EditorDocument? ActiveDocument => EditorTabs.SelectedIndex >= 0 && EditorTabs.SelectedIndex < _documents.Count ? _documents[EditorTabs.SelectedIndex] : null;
@@ -152,7 +208,7 @@ main:
     private async void OpenFolder_Click(object? s, RoutedEventArgs e)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Open ASMForge project or folder", AllowMultiple = false });
-        if (folders.Count == 0) return; _projectFolder = folders[0].Path.LocalPath; RefreshExplorer(); Status.Text = $"Opened {Path.GetFileName(_projectFolder)}";
+        if (folders.Count == 0) return; _projectFolder = folders[0].Path.LocalPath; RefreshExplorer(); SaveSession(); Status.Text = $"Opened {Path.GetFileName(_projectFolder)}";
     }
     private void Save_Click(object? s, RoutedEventArgs e) => SaveActive(false);
     private void SaveAs_Click(object? s, RoutedEventArgs e) => SaveActive(true);
@@ -164,7 +220,7 @@ main:
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = "Save file", SuggestedFileName = doc.Name });
             if (file is null) return; path = file.Path.LocalPath;
         }
-        try { File.WriteAllText(path!, doc.Editor.Text ?? ""); doc.Path = path; doc.Name = Path.GetFileName(path); doc.Dirty = false; UpdateTabHeaders(); RefreshExplorer(); Status.Text = $"Saved {doc.Name}"; }
+        try { File.WriteAllText(path!, doc.Editor.Text ?? ""); doc.Path = path; doc.Name = Path.GetFileName(path); doc.Dirty = false; UpdateTabHeaders(); RefreshExplorer(); SaveSession(); Status.Text = $"Saved {doc.Name}"; }
         catch (Exception ex) { ShowError(ex); }
     }
     private void CloseFile_Click(object? s, RoutedEventArgs e) => CloseDocumentAt(EditorTabs.SelectedIndex);
@@ -181,6 +237,7 @@ main:
             OpenDocument(null, "Untitled.asm", "", true);
         else
             EditorTabs.SelectedIndex = Math.Min(index, _documents.Count - 1);
+        SaveSession();
     }
 
     private void OpenFilePath(string path)
@@ -254,6 +311,7 @@ main:
         EditorTabs.SelectedIndex = _documents.Count - 1;
         UpdateTabHeaders();
         editor.Focus();
+        SaveSession();
 
         DiagnosticLog.Info($"Editor attached to tab: {name}; tabs={EditorTabs.Items.Count}; editorParent={editor.Parent?.GetType().Name ?? "<null>"}");
         Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics($"opened-{name}"), Avalonia.Threading.DispatcherPriority.Loaded);
@@ -427,7 +485,7 @@ main:
     }
 
     private void ExplorerList_DoubleTapped(object? s, TappedEventArgs e) { if (_projectFolder is null || ExplorerList.SelectedItem is not string item) return; var rel = item.Trim(); if (rel == "No project/folder open") return; var path = Path.Combine(_projectFolder, rel); if (File.Exists(path)) OpenFilePath(path); }
-    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
+    private void EditorTabs_SelectionChanged(object? s, SelectionChangedEventArgs e) { _program = null; SaveSession(); Status.Text = ActiveDocument is null ? "Ready" : ActiveDocument.Name; ActiveEditor?.Focus(); DiagnosticLog.Info($"Editor tab changed: index={EditorTabs.SelectedIndex}, active={ActiveDocument?.Name ?? "<none>"}"); Avalonia.Threading.Dispatcher.UIThread.Post(() => LogEditorDiagnostics("tab-selection-changed"), Avalonia.Threading.DispatcherPriority.Loaded); }
     private void ShowLineNumbers_Click(object? s, RoutedEventArgs e) { _settings.ShowLineNumbers = ShowLineNumbersMenu.IsChecked; foreach (var d in _documents) d.Editor.ShowLineNumbers = _settings.ShowLineNumbers; _settings.Save(); }
     private void SyntaxHighlighting_Click(object? s, RoutedEventArgs e)
     {
@@ -451,8 +509,7 @@ main:
 
         var source = editor.Text ?? string.Empty;
         _program = _assembler.Assemble(source);
-        _machine.Load(_program);
-        _history.Clear();
+        _machine.Load(_program); // also clears Step Back history
 
         var warnings = GetAssemblyWarnings(source);
         Status.Text = warnings.Count == 0
@@ -506,7 +563,7 @@ main:
             Status.Text = "C# host stepping is API-controlled";
             return;
         }
-        Try(() => { if (_program is null) Assemble(); if (!_machine.Halted) _history.Push(_machine.InstructionIndex); _machine.Step(); Status.Text = _machine.Halted ? "Finished" : "Stepped"; RefreshDisplay(); });
+        Try(() => { if (_program is null) Assemble(); _machine.Step(); Status.Text = _machine.Halted ? "Finished" : "Stepped"; RefreshDisplay(); });
     }
 
     private async void Run_Click(object? s, RoutedEventArgs e)
@@ -530,7 +587,30 @@ main:
         }
         Try(Assemble);
     }
-    private void Back_Click(object? s, RoutedEventArgs e) { Messages.Text = "Backstep state restoration is not implemented yet."; Status.Text = "Backstep not yet implemented"; }
+    private void Back_Click(object? s, RoutedEventArgs e)
+    {
+        if (ActiveDocument?.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            Messages.Text = "Step Back applies to MIPS assembly. In C# host code, use ASMForgeRuntime.StepBack().";
+            OutputTabs.SelectedIndex = 0;
+            Status.Text = "C# host stepping is API-controlled";
+            return;
+        }
+        if (_program is null)
+        {
+            // The source changed (or another tab was selected) since the last assemble,
+            // so the recorded history no longer matches the editor.
+            Messages.Text = "Step Back needs the current source to be assembled. Assemble (F3) and step again.";
+            OutputTabs.SelectedIndex = 0;
+            Status.Text = "Assemble first";
+            return;
+        }
+        Try(() =>
+        {
+            Status.Text = _machine.StepBack() ? $"Stepped back to 0x{_machine.PC:X8}" : "Nothing to step back";
+            RefreshDisplay();
+        });
+    }
 
     private async Task RunCSharpAsync()
     {
@@ -625,7 +705,7 @@ main:
             d.Editor.TextArea.TextView.Redraw();
         }
     }
-    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
+    private void Window_KeyDown(object? s, KeyEventArgs e) { if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.N) { New_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.O) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) OpenFolder_Click(s, new RoutedEventArgs()); else Open_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.S) { if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) SaveAs_Click(s, new RoutedEventArgs()); else Save_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W) { CloseFile_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F3) { Assemble_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F5) { Run_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F9) { Back_Click(s, new RoutedEventArgs()); e.Handled = true; } else if (e.Key == Key.F10) { Step_Click(s, new RoutedEventArgs()); e.Handled = true; } }
     private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
     {
         // AvaloniaEdit 11.x can try to render its line-number margin while the
@@ -634,6 +714,9 @@ main:
         // Remove the line-number margins before the compositor disposes them.
         try
         {
+            // Save the session first, then pause saving so teardown tab changes can't overwrite it.
+            SaveSession();
+            _sessionPaused = true;
             _completionWindow?.Close();
             _completionWindow = null;
             foreach (var document in _documents)
@@ -651,8 +734,79 @@ main:
 
     private void Try(Action a) { try { a(); } catch (Exception ex) { ShowError(ex); } }
     private void ShowError(Exception ex) { DiagnosticLog.Error("UI operation failed", ex); Status.Text = "Error"; Messages.Text = ex.Message; OutputTabs.SelectedIndex = 0; RefreshDisplay(); }
-    private void RefreshDisplay() { if (RegistersList is null) return; var rows = new List<string>(); for (var i = 0; i < 32; i++) rows.Add($"{RegisterFile.Names[i],5}  {FormatRegister(_machine.Registers[i])}"); rows.Add($"   HI  {FormatRegister(_machine.Registers.HI)}"); rows.Add($"   LO  {FormatRegister(_machine.Registers.LO)}"); RegistersList.ItemsSource = rows; PcText.Text = $"PC  0x{_machine.PC:X8}"; Console.Text = _machine.ConsoleText ?? ""; RefreshTextSegment(); RefreshMemoryViewer(); HighlightCurrentSourceLine(); }
-    private void RefreshTextSegment() { if (TextSegmentGrid is null) return; if (_program is null) { TextSegmentGrid.ItemsSource = Array.Empty<TextRow>(); return; } var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n'); var data = _program.Instructions.Select((x, i) => new TextRow($"0x{x.Address:X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList(); TextSegmentGrid.ItemsSource = data; var index = !_machine.Halted && _machine.InstructionIndex < data.Count ? _machine.InstructionIndex : -1; TextSegmentGrid.SelectedIndex = index; if (index >= 0) TextSegmentGrid.ScrollIntoView(data[index], null); }
+    private void RefreshDisplay()
+    {
+        if (RegistersList is null) return;
+        var previous = PreviousRegisterValues();
+        if (!ReferenceEquals(RegistersList.ItemsSource, _registerRows)) RegistersList.ItemsSource = _registerRows;
+        // Row index matches the register change index: 0-31, then HI (32) and LO (33).
+        for (var i = 0; i < _registerRows.Length; i++) UpdateRegisterRow(_registerRows[i], i, previous);
+        PcText.Text = $"PC  0x{_machine.PC:X8}";
+        Console.Text = _machine.ConsoleText ?? "";
+        if (BackButton is not null) BackButton.IsEnabled = _machine.CanStepBack;
+        if (BackMenuItem is not null) BackMenuItem.IsEnabled = _machine.CanStepBack;
+        RefreshTextSegment(); RefreshMemoryViewer(); HighlightCurrentSourceLine();
+    }
+
+    private void UpdateRegisterRow(RegisterRow row, int index, IReadOnlyDictionary<int, int> previous)
+    {
+        var name = RegisterFile.NameOf(index);
+        var changed = previous.TryGetValue(index, out var old);
+        row.Text = $"{name,5}  {FormatRegister(_machine.Registers.GetByIndex(index))}";
+        row.Background = changed ? ChangedBrush : null;
+        row.Weight = changed ? FontWeight.Bold : FontWeight.Normal;
+        row.Tip = changed ? $"{ChangeVerb()}; was {FormatRegister(old)}" : null;
+    }
+
+    private string ChangeVerb() => _machine.LastStepWasUndo ? "Restored by Step Back" : "Written by the last step";
+
+    // Value each register held before the last step (or before the last Step Back).
+    private Dictionary<int, int> PreviousRegisterValues()
+    {
+        var result = new Dictionary<int, int>();
+        var step = _machine.LastStep;
+        if (step is null) return result;
+        foreach (var change in step.RegisterChanges)
+        {
+            if (_machine.LastStepWasUndo) result[change.Register] = change.NewValue;
+            else result.TryAdd(change.Register, change.OldValue);
+        }
+        return result;
+    }
+
+    private Dictionary<uint, byte> PreviousMemoryBytes()
+    {
+        var result = new Dictionary<uint, byte>();
+        var step = _machine.LastStep;
+        if (step is null) return result;
+        foreach (var change in step.MemoryChanges)
+        {
+            if (_machine.LastStepWasUndo) result[change.Address] = change.NewValue;
+            else result.TryAdd(change.Address, change.OldValue);
+        }
+        return result;
+    }
+    private void RefreshTextSegment()
+    {
+        if (TextSegmentGrid is null) return;
+        if (_program is null)
+        {
+            if (_textSegmentProgram is not null) { TextSegmentGrid.ItemsSource = Array.Empty<TextRow>(); _textRows = new(); _textSegmentProgram = null; }
+            return;
+        }
+        // Rebuild rows only when a new program is assembled; replacing ItemsSource on every
+        // step would reset the grid's scroll position.
+        if (!ReferenceEquals(_program, _textSegmentProgram))
+        {
+            var sourceLines = (ActiveEditor?.Text ?? "").Replace("\r\n", "\n").Split('\n');
+            _textRows = _program.Instructions.Select(x => new TextRow($"0x{x.Address:X8}", "—", x.BasicSource, x.Line > 0 && x.Line <= sourceLines.Length ? $"{x.Line}: {sourceLines[x.Line - 1].Trim()}" : $"Line {x.Line}")).ToList();
+            TextSegmentGrid.ItemsSource = _textRows;
+            _textSegmentProgram = _program;
+        }
+        var index = !_machine.Halted && _machine.InstructionIndex < _textRows.Count ? _machine.InstructionIndex : -1;
+        if (TextSegmentGrid.SelectedIndex != index) TextSegmentGrid.SelectedIndex = index;
+        if (index >= 0) TextSegmentGrid.ScrollIntoView(_textRows[index], null);
+    }
     private void HighlightCurrentSourceLine()
     {
         var editor = ActiveEditor;
@@ -712,9 +866,10 @@ main:
     private void RefreshMemoryViewer()
     {
         if (MemoryGrid is null) return;
-        var rows = new List<MemoryRow>(16);
+        var previous = PreviousMemoryBytes();
+        if (!ReferenceEquals(MemoryGrid.ItemsSource, _memoryRows)) MemoryGrid.ItemsSource = _memoryRows;
         var start = _memoryViewStart & 0xfffffff0u;
-        for (var row = 0; row < 16; row++)
+        for (var row = 0; row < _memoryRows.Length; row++)
         {
             var address = unchecked(start + (uint)(row * 16));
             var ascii = new char[16];
@@ -724,15 +879,31 @@ main:
                 ascii[i] = b is >= 32 and <= 126 ? (char)b : '.';
             }
 
-            rows.Add(new MemoryRow(
-                $"0x{address:X8}",
-                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address)),
-                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address + 4)),
-                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address + 8)),
-                FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address + 12)),
-                new string(ascii)));
+            var r = _memoryRows[row];
+            r.Address = $"0x{address:X8}";
+            r.W0 = MemoryWordCell(address, previous);
+            r.W4 = MemoryWordCell(address + 4, previous);
+            r.W8 = MemoryWordCell(address + 8, previous);
+            r.WC = MemoryWordCell(address + 12, previous);
+            r.Ascii = new string(ascii);
         }
-        MemoryGrid.ItemsSource = rows;
+    }
+
+    private MemoryCell MemoryWordCell(uint address, IReadOnlyDictionary<uint, byte> previous)
+    {
+        var text = FormatMemoryWord(_machine.Memory.ReadWordUnsigned(address));
+        var changed = false;
+        uint old = 0;
+        for (var i = 0; i < 4; i++)
+        {
+            var byteAddress = unchecked(address + (uint)i);
+            if (previous.TryGetValue(byteAddress, out var oldByte)) changed = true;
+            else oldByte = _machine.Memory.ReadByte(byteAddress);
+            old |= (uint)oldByte << (i * 8);
+        }
+        return changed
+            ? new MemoryCell(text, ChangedBrush, FontWeight.Bold, $"{ChangeVerb()}; was {FormatMemoryWord(old)}")
+            : new MemoryCell(text, null, FontWeight.Normal, null);
     }
 
     private string FormatMemoryWord(uint value)
@@ -762,7 +933,47 @@ main:
     private string FormatRegister(int value) { var mode = RegisterFormat?.SelectedIndex ?? 0; var u = unchecked((uint)value); return mode switch { 1 => value.ToString(), 2 => u.ToString(), 3 => Convert.ToString(u, 2).PadLeft(32, '0'), 4 => FormatAscii(u), _ => $"0x{u:X8}" }; }
     private static string FormatAscii(uint value) { var b = (byte)(value & 0xFF); return b switch { 0 => "'\\0'", 9 => "'\\t'", 10 => "'\\n'", 13 => "'\\r'", >= 32 and <= 126 => $"'{(char)b}'", _ => $"'\\x{b:X2}'" }; }
     private sealed record TextRow(string Address, string Code, string Basic, string Source);
-    private sealed record MemoryRow(string Address, string W0, string W4, string W8, string WC, string Ascii);
+    private sealed record MemoryCell(string Text, IBrush? Background, FontWeight Weight, string? Tip);
+
+    // Register and memory rows are created once and updated in place (with change notifications)
+    // so the lists keep their scroll position and selection while stepping.
+    private abstract class BindableRow : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value)) return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+
+    private sealed class RegisterRow : BindableRow
+    {
+        private string _text = "";
+        private IBrush? _background;
+        private FontWeight _weight = FontWeight.Normal;
+        private string? _tip;
+        public string Text { get => _text; set => Set(ref _text, value); }
+        public IBrush? Background { get => _background; set => Set(ref _background, value); }
+        public FontWeight Weight { get => _weight; set => Set(ref _weight, value); }
+        public string? Tip { get => _tip; set => Set(ref _tip, value); }
+    }
+
+    private sealed class MemoryRow : BindableRow
+    {
+        private static readonly MemoryCell Empty = new("", null, FontWeight.Normal, null);
+        private string _address = "";
+        private MemoryCell _w0 = Empty, _w4 = Empty, _w8 = Empty, _wc = Empty;
+        private string _ascii = "";
+        public string Address { get => _address; set => Set(ref _address, value); }
+        public MemoryCell W0 { get => _w0; set => Set(ref _w0, value); }
+        public MemoryCell W4 { get => _w4; set => Set(ref _w4, value); }
+        public MemoryCell W8 { get => _w8; set => Set(ref _w8, value); }
+        public MemoryCell WC { get => _wc; set => Set(ref _wc, value); }
+        public string Ascii { get => _ascii; set => Set(ref _ascii, value); }
+    }
     private sealed class EditorDocument
     {
         public string? Path;
@@ -786,6 +997,11 @@ internal sealed class AppSettings
 {
     public bool ShowLineNumbers { get; set; } = true;
     public bool SyntaxHighlighting { get; set; } = true;
+
+    // Session state, restored on the next launch.
+    public string? ProjectFolder { get; set; }
+    public List<string> OpenFiles { get; set; } = new();
+    public string? ActiveFile { get; set; }
     private static string SettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ASMForge", "settings.json");
     public static AppSettings Load() { try { return File.Exists(SettingsPath) ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath)) ?? new() : new(); } catch { return new(); } }
     public void Save() { try { Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!); File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true })); } catch { } }

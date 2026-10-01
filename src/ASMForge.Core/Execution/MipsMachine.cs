@@ -21,10 +21,29 @@ public sealed class MipsMachine
     public int ExitCode { get; private set; }
 
     private uint _heapBreak = MipsMemory.HeapBase;
+    private readonly StepJournal _journal = new();
+    private readonly LinkedList<StepRecord> _history = new();
+    private int _historyLimit = 5000;
+
+    /// <summary>The most recently executed (or, after <see cref="StepBack"/>, undone) step.</summary>
+    public StepRecord? LastStep { get; private set; }
+    public bool LastStepWasUndo { get; private set; }
+    public bool CanStepBack => _history.Count > 0;
+    public int HistoryCount => _history.Count;
+
+    /// <summary>Maximum number of steps kept for <see cref="StepBack"/>. Oldest steps are dropped first.</summary>
+    public int HistoryLimit
+    {
+        get => _historyLimit;
+        set { _historyLimit = Math.Max(0, value); TrimHistory(); }
+    }
 
     public void Load(AssemblyProgram program)
     {
         Program = program;
+        _history.Clear();
+        LastStep = null;
+        LastStepWasUndo = false;
         Halted = false;
         ConsoleText = string.Empty;
         ExitCode = 0;
@@ -49,8 +68,16 @@ public sealed class MipsMachine
 
         InstructionIndex = index;
         var x = Program.Instructions[index];
+        var pc = PC;
         var nextPc = unchecked(PC + 4);
+        var heapBefore = _heapBreak;
+        var consoleBefore = ConsoleText.Length;
+        var exitCodeBefore = ExitCode;
+        var completed = false;
 
+        _journal.Clear();
+        Registers.Journal = _journal;
+        Memory.Journal = _journal;
         try
         {
             Execute(x, ref nextPc);
@@ -60,12 +87,63 @@ public sealed class MipsMachine
                 SyncInstructionIndex();
                 if (!Program.AddressToInstruction.ContainsKey(PC)) Halted = true;
             }
+            completed = true;
         }
         catch (Exception e) when (e is not InvalidOperationException || !e.Message.StartsWith("Line ", StringComparison.Ordinal))
         {
             Halted = true;
             throw new InvalidOperationException($"Line {x.Line}: {x.Source}\n{e.Message}", e);
         }
+        finally
+        {
+            Registers.Journal = null;
+            Memory.Journal = null;
+            // Faulting steps are recorded too, so Step Back can return to the state before the error.
+            Record(new StepRecord(pc, index, PC, _journal.Registers.ToArray(), _journal.Memory.ToArray(),
+                heapBefore, _heapBreak, consoleBefore, exitCodeBefore, !completed));
+        }
+    }
+
+    /// <summary>
+    /// Undoes the most recent recorded step: registers, HI/LO, memory, PC, heap break,
+    /// console output and exit state. Returns false when there is nothing to undo.
+    /// </summary>
+    public bool StepBack()
+    {
+        var node = _history.Last;
+        if (node is null) return false;
+        _history.RemoveLast();
+        var record = node.Value;
+
+        // Restore in reverse write order so repeated writes to one location unwind correctly.
+        for (var i = record.MemoryChanges.Count - 1; i >= 0; i--)
+            Memory.WriteByte(record.MemoryChanges[i].Address, record.MemoryChanges[i].OldValue);
+        for (var i = record.RegisterChanges.Count - 1; i >= 0; i--)
+            Registers.SetByIndex(record.RegisterChanges[i].Register, record.RegisterChanges[i].OldValue);
+
+        PC = record.Pc;
+        InstructionIndex = record.InstructionIndex;
+        _heapBreak = record.HeapBreakBefore;
+        ConsoleText = ConsoleText[..Math.Min(record.ConsoleLengthBefore, ConsoleText.Length)];
+        ExitCode = record.ExitCodeBefore;
+        Halted = false;
+        LastStep = record;
+        LastStepWasUndo = true;
+        return true;
+    }
+
+    private void Record(StepRecord record)
+    {
+        LastStep = record;
+        LastStepWasUndo = false;
+        if (_historyLimit == 0) return;
+        _history.AddLast(record);
+        TrimHistory();
+    }
+
+    private void TrimHistory()
+    {
+        while (_history.Count > _historyLimit) _history.RemoveFirst();
     }
 
     public void Run(int max = 1_000_000)

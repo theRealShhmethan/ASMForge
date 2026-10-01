@@ -14,6 +14,7 @@
 - Public C# `ASMForgeRuntime` API.
 - Built-in Roslyn compilation/execution of C# project files.
 - Project Explorer now includes generated C# project files.
+- Backstep (v0.9, pending build verification): per-step change record restores registers, HI/LO, memory, PC, heap break and console output.
 
 ## Still outstanding for broader MARS compatibility
 - Full Coprocessor 1 floating-point implementation.
@@ -21,7 +22,6 @@
 - Remaining MARS syscalls.
 - Full macro / include compatibility.
 - Memory-mapped I/O.
-- Backstep state restoration.
 - Delayed-branch configuration.
 - Full machine-code encoding/decoding in the Text Segment Code column.
 - Alternate MARS memory configurations.

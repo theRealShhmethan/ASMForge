@@ -1,3 +1,4 @@
+using ASMForge.Core.Execution;
 using System.Text;
 
 namespace ASMForge.Core.Memory;
@@ -15,6 +16,9 @@ public sealed class MipsMemory
 
     private readonly Dictionary<uint, byte> _bytes = new();
 
+    /// <summary>While set, every byte write is recorded for the current step.</summary>
+    internal StepJournal? Journal { get; set; }
+
     public void Reset() => _bytes.Clear();
 
     public void Load(IReadOnlyDictionary<uint, byte> image)
@@ -25,7 +29,11 @@ public sealed class MipsMemory
 
     public byte ReadByte(uint address) => _bytes.TryGetValue(address, out var value) ? value : (byte)0;
     public sbyte ReadSByte(uint address) => unchecked((sbyte)ReadByte(address));
-    public void WriteByte(uint address, byte value) => _bytes[address] = value;
+    public void WriteByte(uint address, byte value)
+    {
+        Journal?.Memory.Add(new MemoryChange(address, ReadByte(address), value));
+        _bytes[address] = value;
+    }
 
     public ushort ReadHalf(uint address)
     {
