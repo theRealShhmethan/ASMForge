@@ -138,6 +138,7 @@ main:
         // Restore the last Hex / Signed / Unsigned / Binary / ASCII choice for each viewer.
         RegisterFormat.SelectedIndex = Math.Clamp(_settings.RegisterFormatIndex, 0, RegisterFormat.ItemCount - 1);
         MemoryFormat.SelectedIndex = Math.Clamp(_settings.MemoryFormatIndex, 0, MemoryFormat.ItemCount - 1);
+        BuildExamplesMenu();
         RestoreSession();
         if (_documents.Count == 0) OpenDocument(null, "main.asm", Sample, false);
         RefreshExplorer(); RefreshDisplay();
@@ -198,6 +199,37 @@ main:
         if (restored > 0 || missing > 0)
             Status.Text = missing == 0 ? $"Restored {restored} file(s)" : $"Restored {restored} file(s); {missing} could not be found";
         DiagnosticLog.Info($"Session restored: project={_projectFolder ?? "<none>"}; files={restored}; missing={missing}");
+    }
+
+    /// <summary>
+    /// Opens files given on the command line or forwarded from another launch (double-clicking an .asm or .pseudo
+    /// file) and selects the last one. An untouched, never-saved sample tab is closed so the file takes its place.
+    /// </summary>
+    internal void OpenCommandLineFiles(IEnumerable<string> paths, bool bringToFront = false)
+    {
+        EditorDocument? opened = null;
+        foreach (var path in paths)
+        {
+            if (!File.Exists(path)) { Status.Text = $"File not found: {path}"; continue; }
+            var fullPath = Path.GetFullPath(path);
+            Try(() => OpenFilePath(fullPath));
+            opened = _documents.FirstOrDefault(d => string.Equals(d.Path, fullPath, StringComparison.OrdinalIgnoreCase)) ?? opened;
+        }
+
+        if (opened is not null)
+        {
+            foreach (var untouched in _documents.Where(d => d.Path is null && !d.Dirty).ToList())
+                CloseDocumentAt(_documents.IndexOf(untouched));
+            EditorTabs.SelectedIndex = _documents.IndexOf(opened);
+            WorkspaceTabs.SelectedIndex = 0;
+            Status.Text = $"Opened {opened.Name}";
+        }
+
+        if (bringToFront)
+        {
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Activate();
+        }
     }
 
     // Persists the open project, open file paths and active file. Untitled documents have no path and are not saved.
@@ -1491,6 +1523,78 @@ main:
         editor.ScrollToLine(line);
         editor.Focus();
         return true;
+    }
+
+    // ---- Tools > Examples ----
+
+    private static readonly Dictionary<string, string> ExampleTitles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["FizzBuzz.pseudo"] = "FizzBuzz (pseudocode)",
+        ["InputTest.asm"] = "Input: read an integer, string and character",
+        ["DebuggerTest.asm"] = "Debugger: breakpoints, Pause, Run to Cursor",
+        ["StepBackTest.asm"] = "Step Back and change highlighting",
+        ["MemoryViewerTest.asm"] = "Memory viewer: data, heap and stack",
+        ["CSharpInterop.cs"] = "C# controlling the MIPS simulator"
+    };
+
+    // Lists the sample programs shipped in the Examples folder next to the app.
+    private void BuildExamplesMenu()
+    {
+        var folder = Path.Combine(AppContext.BaseDirectory, "Examples");
+        var files = Directory.Exists(folder)
+            ? Directory.GetFiles(folder).OrderBy(f => ExampleTitles.GetValueOrDefault(Path.GetFileName(f), Path.GetFileName(f)), StringComparer.OrdinalIgnoreCase).ToList()
+            : new List<string>();
+        if (files.Count == 0)
+        {
+            ExamplesMenu.Items.Add(new MenuItem { Header = "(no examples found)", IsEnabled = false });
+            return;
+        }
+        foreach (var file in files)
+        {
+            var name = Path.GetFileName(file);
+            var item = new MenuItem { Header = $"{ExampleTitles.GetValueOrDefault(name, Path.GetFileNameWithoutExtension(name))}   ({name})" };
+            item.Click += (_, _) => AddExample(file);
+            ExamplesMenu.Items.Add(item);
+        }
+    }
+
+    /// <summary>
+    /// Copies an example into the open project folder (or a folder the user picks) and opens the copy, so the
+    /// shipped example is never edited. An existing file with the same name is never overwritten: an identical
+    /// copy is simply reopened, an edited one gets a new "Name (2)" copy next to it.
+    /// </summary>
+    private async void AddExample(string example)
+    {
+        var folder = _projectFolder;
+        if (folder is null || !Directory.Exists(folder))
+        {
+            var picked = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose a folder for the example", AllowMultiple = false });
+            if (picked.Count == 0) return;
+            folder = picked[0].Path.LocalPath;
+        }
+
+        try
+        {
+            var original = File.ReadAllText(example);
+            var target = Path.Combine(folder, Path.GetFileName(example));
+            var stem = Path.GetFileNameWithoutExtension(example);
+            var extension = Path.GetExtension(example);
+            for (var n = 2; File.Exists(target) && File.ReadAllText(target) != original; n++)
+                target = Path.Combine(folder, $"{stem} ({n}){extension}");
+
+            var created = !File.Exists(target);
+            if (created) File.WriteAllText(target, original);
+            OpenFilePath(target);
+            RefreshExplorer();
+            WorkspaceTabs.SelectedIndex = 0;
+            Status.Text = created
+                ? $"Copied example to {target}. Edit it freely; the original example is unchanged."
+                : $"Opened your existing copy {target} (it is identical to the example).";
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
     }
 
     // ---- Pseudocode generator ----

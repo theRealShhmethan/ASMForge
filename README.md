@@ -1,4 +1,4 @@
-# ASMForge v0.12.0
+# ASMForge v0.13.0
 
 ASMForge is a MIPS assembly IDE and simulator built with C# and Avalonia. It aims to be a modern,
 teacher-ready alternative to MARS: a MARS-compatible assembler, a debugger with breakpoints and step back,
@@ -38,6 +38,10 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version and
 - Resizable panels, memory viewer with Data / Heap / Stack ($sp) / $gp / $fp / Custom views (register views follow
   the register) and Hex / Signed / Unsigned / Binary / ASCII formats. The Go box accepts addresses, labels and `$registers`.
 
+### Examples
+- **Tools > Examples** copies a sample program (FizzBuzz, input, debugger, Step Back, memory viewer, C# interop)
+  into your project folder and opens it, so the original example always stays unchanged.
+
 ### Pseudocode generator
 - **Tools > Pseudocode Generator** or `.pseudo` files: write C-like pseudocode (variables, arrays, if/else, loops,
   print/read) and get commented MIPS assembly that runs in ASMForge. F3 generates, F5 generates and runs.
@@ -75,6 +79,29 @@ dotnet run --project src/ASMForge.App
 ```
 
 The version number lives in `Directory.Build.props`.
+
+### Installer and stand-alone build (no Visual Studio or .NET needed)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File publish.ps1
+```
+
+This creates, in `publish\`:
+
+| File | Use |
+|---|---|
+| `ASMForge-Setup-<version>.exe` | **Installer to share.** Installs per user (no administrator password) with a Start Menu shortcut, an optional desktop shortcut, optional `.asm`/`.pseudo` file associations, and an uninstaller in Settings > Apps. |
+| `ASMForge-<version>-win-x64.zip` | Portable copy: unzip anywhere and run `ASMForge.App.exe`. |
+| `ASMForge-<version>-win-x64\` | The app folder both are made from. |
+
+Building the installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php) on the build PC
+(`winget install JRSoftware.InnoSetup`); the installer script is `installer\ASMForge.iss`. Both include .NET, so they
+run on any 64-bit Windows PC. The app is a folder rather than one `.exe` because running C# files inside ASMForge
+needs the .NET libraries as real files on disk. The app is not code-signed, so Windows SmartScreen shows
+"Windows protected your PC" the first time: choose **More info > Run anyway**.
+
+Double-clicking an `.asm` or `.pseudo` file (or running `ASMForge.App.exe file.asm`) opens it; if ASMForge is
+already open, the file opens in that window.
 
 ## C# interop example
 

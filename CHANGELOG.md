@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.13.0
+- ASMForge starts maximized. Un-maximizing gives a centered 1450 × 900 window.
+- **Installer**: `publish.ps1` now builds `ASMForge-Setup-<version>.exe` (Inno Setup) alongside the portable zip.
+  It installs per user without an administrator password, adds a Start Menu shortcut and an optional desktop
+  shortcut, can associate `.asm` and `.pseudo` files with ASMForge, launches ASMForge when finished, upgrades
+  in place, and has an uninstaller in Settings > Apps.
+- **Opening files from Windows**: double-clicking an associated file, or `ASMForge.App.exe file.asm`, opens it. If
+  ASMForge is already open, the file is sent to that window instead of starting a second copy (an installed copy
+  and a Visual Studio debug build stay separate).
+- **App icon** for the window, taskbar, shortcuts and associated files.
+- **Tools > Examples**: pick a sample program to copy into the open project folder (or a folder you choose) and
+  open it. The shipped examples are never edited; choosing one again after editing your copy makes a new
+  `Name (2)` copy instead of overwriting. The examples are included in the installer.
 - **Pseudocode generator** (Tools > Pseudocode Generator, and `.pseudo` files): write C-like pseudocode and get
   commented MIPS assembly. Supports int variables and arrays, if/else, while, do-while, for, break/continue,
   print/printChar/readInt/readChar/exit and C operators with short-circuit `&&`/`||`. Each statement appears as a

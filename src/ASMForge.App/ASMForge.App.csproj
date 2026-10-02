@@ -5,7 +5,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <!-- Icon for the .exe (shortcuts and file associations); the window uses the same file via Assets. -->
+    <ApplicationIcon>Assets\asmforge.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <!-- Sample programs for Tools > Examples, copied next to the app (and into published builds and the installer). -->
+  <ItemGroup>
+    <Content Include="..\..\examples\*.asm;..\..\examples\*.pseudo" LinkBase="Examples" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\examples\CSharpInterop\Program.cs" Link="Examples\CSharpInterop.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.3" />

@@ -2,10 +2,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ASMForge.App.Views.MainWindow"
         Title="ASMForge"
+        Icon="/Assets/asmforge.ico"
         Width="1450"
         Height="900"
         MinWidth="1080"
         MinHeight="700"
+        WindowState="Maximized"
+        WindowStartupLocation="CenterScreen"
         Closing="MainWindow_Closing">
 
   <Window.Resources>
@@ -98,6 +101,9 @@
       <MenuItem Header="_Tools">
         <MenuItem Header="_Pseudocode Generator..." Click="PseudocodeGenerator_Click"/>
         <MenuItem Header="_Generate Assembly from Pseudocode" InputGesture="F3" Click="GenerateFromPseudocode_Click"/>
+        <Separator/>
+        <!-- Filled at startup from the Examples folder next to the app; choosing one copies it into the project. -->
+        <MenuItem Name="ExamplesMenu" Header="_Examples"/>
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="_About ASMForge" Click="About_Click"/>

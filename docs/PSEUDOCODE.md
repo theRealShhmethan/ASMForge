@@ -58,15 +58,12 @@ The output is written in the style of a hand-written course assignment:
   block**, a `# Registers: $s0 = i, ...` note, and `main:`.
 - **Variables live in `$s0`-`$s7`** in the order they are declared; beyond eight, the rest are `.data` words.
   Arrays are `.data` labels (`.word` values or `.space`). Expressions use `$t0`-`$t9`.
-- **Strings are named after their text**: `"FizzBuzz
-"` becomes `fizzBuzz`, `"
-"` becomes `newline`.
+- **Strings are named after their text**: `"FizzBuzz\n"` becomes `fizzBuzz`, `"\n"` becomes `newline`.
 - **Labels are named after the construct**: `loop`/`endLoop`, `forLoop`/`forNext`/`endFor`,
   `doLoop`/`doCondition`/`endDo`, `else`/`endIf`; later ones are numbered (`loop2`, `endIf2`).
   An array whose name is already used as a label (such as `main`) is renamed `var_main`.
 - **Short trailing comments** explain each step: `bgt $s0, 100, endLoop  # if i > 100 → endLoop`,
-  `addi $s0, $s0, 1  # i++`, `syscall  # Print "Fizz
-"`, `# Select exit syscall`, `# Exit program`.
+  `addi $s0, $s0, 1  # i++`, `syscall  # Print "Fizz\n"`, `# Select exit syscall`, `# Exit program`.
 - Division and remainder use MARS's `div`/`rem` pseudo-instructions, which stop with "Division by zero" at run time.
 
 ## Not yet supported

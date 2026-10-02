@@ -1,6 +1,6 @@
 # ASMForge — Full Development Roadmap
 
-> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.12.0** on 2026-10-01 (see CHANGELOG.md).  
+> **Status audit:** Originally audited for **ASMForge v0.8.1**; updated through **v0.13.0** on 2026-10-02 (see CHANGELOG.md).  
 > `[x]` means the feature is directly present in the source; `[~]` means it exists in partial form but does not yet satisfy the full roadmap item.  
 > `[T]` marks items implemented but not yet confirmed; they become `[x]` after a confirmation pass.
 
@@ -1549,6 +1549,7 @@ Recommended examples:
 - [ ] file read/write
 - [ ] floating-point math
 - [x] C# controls MIPS execution
+- [T] Tools > Examples menu: copies an example into the project folder and opens it (originals never edited)
 
 ---
 
@@ -1783,26 +1784,26 @@ Features:
 
 ## Windows
 
-- [ ] self-contained build
-- [ ] installer
-- [ ] Start Menu shortcut
-- [ ] Desktop shortcut optional
-- [ ] file associations
-- [ ] uninstall support
-- [ ] versioned installer
-- [ ] application icon
+- [T] self-contained build
+- [T] installer
+- [T] Start Menu shortcut
+- [T] Desktop shortcut optional
+- [T] file associations *(.asm and .pseudo, optional during install; a running ASMForge receives the file)*
+- [T] uninstall support
+- [T] versioned installer
+- [T] application icon
 
 Potential installer:
 
-- [ ] MSIX
-- [ ] Inno Setup
-- [ ] NSIS
+- [ ] MSIX *(not needed; Inno Setup chosen)*
+- [T] Inno Setup
+- [ ] NSIS *(not needed; Inno Setup chosen)*
 
 ## Portable
 
-- [ ] portable ZIP
-- [ ] no installation required
-- [ ] settings stored appropriately
+- [T] portable ZIP
+- [T] no installation required
+- [T] settings stored appropriately
 
 ---
 
@@ -2121,7 +2122,7 @@ The roadmap above is intentionally huge. A practical order from the current buil
 
 # Suggested Version Plan
 
-> **Actual releases so far** (see CHANGELOG.md): v0.9 Step Back, change highlighting, session restore; v0.10 Debugger 1.0 (breakpoints, background Run, Pause/Stop); v0.10.1 MARS-accurate pseudo-instructions, machine code, About dialog, unsaved-changes prompts; v0.11.0 console input syscalls and register/memory editing with right-click menus; v0.12.0 live error squiggles (including assembly inside C# strings), Edit menu (Find/Replace, Go to Line/Label, line editing), Messages navigation, and stability (error dialog, regression tests). The plan below is the original suggestion; remaining milestones shift accordingly.
+> **Actual releases so far** (see CHANGELOG.md): v0.9 Step Back, change highlighting, session restore; v0.10 Debugger 1.0 (breakpoints, background Run, Pause/Stop); v0.10.1 MARS-accurate pseudo-instructions, machine code, About dialog, unsaved-changes prompts; v0.11.0 console input syscalls and register/memory editing with right-click menus; v0.12.0 live error squiggles (including assembly inside C# strings), Edit menu (Find/Replace, Go to Line/Label, line editing), Messages navigation, and stability (error dialog, regression tests); v0.13.0 pseudocode-to-MIPS generator (Tools menu and .pseudo files, hand-written course style), installer with Start Menu/desktop shortcuts and .asm/.pseudo file associations, app icon, and Tools > Examples. The plan below is the original suggestion; remaining milestones shift accordingly.
 
 ## v0.9
 

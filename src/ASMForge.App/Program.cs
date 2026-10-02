@@ -8,7 +8,9 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        DiagnosticLog.Info($"Application starting. Version={AppInfo.Version}; .NET={Environment.Version}; OS={Environment.OSVersion}; BaseDir={AppContext.BaseDirectory}");
+        DiagnosticLog.Info($"Application starting. Version={AppInfo.Version}; .NET={Environment.Version}; OS={Environment.OSVersion}; BaseDir={AppContext.BaseDirectory}; Args={args.Length}");
+        // If ASMForge is already open, give it the files (e.g. from double-clicking an .asm) and exit.
+        if (!SingleInstance.TryBecomePrimary(args)) return;
         AppDomain.CurrentDomain.UnhandledException += (_, e) => DiagnosticLog.Error("Unhandled AppDomain exception", e.ExceptionObject as Exception);
         Trace.Listeners.Add(new TextWriterTraceListener(Console.Out));
         try { BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); }

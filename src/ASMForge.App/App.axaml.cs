@@ -36,7 +36,13 @@ public partial class App : Application
         };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.MainWindow = new MainWindow();
+        {
+            var window = new MainWindow();
+            desktop.MainWindow = window;
+            // Files passed on the command line (double-clicking an .asm / .pseudo file) and from later launches.
+            window.OpenCommandLineFiles(desktop.Args ?? Array.Empty<string>());
+            SingleInstance.FilesReceived += files => Dispatcher.UIThread.Post(() => window.OpenCommandLineFiles(files, bringToFront: true));
+        }
         base.OnFrameworkInitializationCompleted();
     }
 
